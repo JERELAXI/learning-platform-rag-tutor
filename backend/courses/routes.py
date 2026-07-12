@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_user, require_role
@@ -29,6 +29,7 @@ from courses.service import (
     update_course,
     update_lesson,
 )
+from enrollments.service import is_student_enrolled
 
 courses_router = APIRouter(prefix="/api/courses", tags=["courses"])
 lessons_router = APIRouter(prefix="/api/courses/{course_id}/lessons", tags=["lessons"])
@@ -104,10 +105,18 @@ async def delete_course_endpoint(
 async def get_lessons(
     course_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
-    # TODO: restrict to enrolled students after етап 3
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> list:
-    await get_course_or_404(db, course_id)
+    course = await get_course_or_404(db, course_id)
+    if not (
+        current_user.role == UserRole.admin
+        or course.teacher_id == current_user.id
+        or await is_student_enrolled(db, current_user.id, course_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Must be enrolled in the course to view lessons",
+        )
     return await list_lessons(db, course_id)
 
 
@@ -128,9 +137,18 @@ async def get_lesson(
     course_id: uuid.UUID,
     lesson_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_user)],
-    # TODO: restrict to enrolled students (or owner) after етап 3
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> object:
+    course = await get_course_or_404(db, course_id)
+    if not (
+        current_user.role == UserRole.admin
+        or course.teacher_id == current_user.id
+        or await is_student_enrolled(db, current_user.id, course_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Must be enrolled in the course to view lessons",
+        )
     return await get_lesson_or_404(db, course_id, lesson_id)
 
 
