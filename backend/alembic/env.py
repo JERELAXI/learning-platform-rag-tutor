@@ -16,6 +16,7 @@ if str(BACKEND_DIR) not in sys.path:
 from core.config import settings  # noqa: E402
 from core.db import Base  # noqa: E402
 from auth import models as _auth_models  # noqa: E402,F401
+from courses import models as _courses_models  # noqa: E402,F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
