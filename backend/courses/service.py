@@ -88,6 +88,14 @@ async def get_lesson_or_404(
     return lesson
 
 
+async def get_lesson_or_404_by_id(db: AsyncSession, lesson_id: uuid.UUID) -> Lesson:
+    result = await db.execute(select(Lesson).where(Lesson.id == lesson_id))
+    lesson = result.scalar_one_or_none()
+    if lesson is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lesson not found")
+    return lesson
+
+
 async def list_lessons(db: AsyncSession, course_id: uuid.UUID) -> list[Lesson]:
     result = await db.execute(
         select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.order)

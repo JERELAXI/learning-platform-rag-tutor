@@ -11,5 +11,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    OPENAI_API_KEY: str
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIM: int = 1536
+    CHAT_MODEL: str = "gpt-4o-mini"
+
+    UPLOADS_DIR: str = "uploads"
+
 
 settings = Settings()
