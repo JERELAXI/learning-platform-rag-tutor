@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = 1536
     CHAT_MODEL: str = "gpt-4o-mini"
 
+    RAG_DISTANCE_THRESHOLD: float = 0.55
+
     UPLOADS_DIR: str = "uploads"
 
 
