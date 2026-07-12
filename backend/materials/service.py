@@ -160,6 +160,45 @@ async def delete_material(db: AsyncSession, material: Material) -> None:
             logger.warning("Failed to remove file %s: %s", file_path, exc)
 
 
+async def search_chunks_by_lesson(
+    db: AsyncSession,
+    lesson_id: uuid.UUID,
+    query_vec: list[float],
+    top_k: int = 5,
+    distance_threshold: float | None = None,
+) -> list[tuple[DocumentChunk, float]]:
+    """Return top-k (chunk, cosine_distance) tuples for a lesson.
+
+    If `distance_threshold` is provided, chunks with distance > threshold
+    are dropped. The full top-k pre-filter list is logged for calibration.
+    """
+    distance = DocumentChunk.embedding.cosine_distance(query_vec).label("distance")
+    stmt = (
+        select(DocumentChunk, distance)
+        .join(Material, Material.id == DocumentChunk.material_id)
+        .where(
+            Material.lesson_id == lesson_id,
+            Material.status == MaterialStatus.ready,
+        )
+        .order_by(distance)
+        .limit(top_k)
+    )
+    result = await db.execute(stmt)
+    rows: list[tuple[DocumentChunk, float]] = [
+        (chunk, float(dist)) for chunk, dist in result.all()
+    ]
+    logger.info(
+        "RAG search lesson=%s top_k=%d threshold=%s distances=%s",
+        lesson_id,
+        top_k,
+        distance_threshold,
+        [round(d, 4) for _, d in rows],
+    )
+    if distance_threshold is not None:
+        rows = [(c, d) for c, d in rows if d <= distance_threshold]
+    return rows
+
+
 async def reset_material_for_reprocess(
     db: AsyncSession, material: Material
 ) -> None:
