@@ -1,6 +1,7 @@
 from celery import Celery
 
 from core.config import settings
+from core.logging import setup_logging
 
 # Preload all ORM models so SQLAlchemy resolves cross-domain string FKs
 # (e.g. Material.lesson_id -> lessons.id) inside the worker process.
@@ -10,6 +11,8 @@ from enrollments import models as _enrollments_models  # noqa: F401
 from materials import models as _materials_models  # noqa: F401
 from chat import models as _chat_models  # noqa: F401
 from quizzes import models as _quizzes_models  # noqa: F401
+
+setup_logging()
 
 celery_app = Celery(
     "learning_platform",

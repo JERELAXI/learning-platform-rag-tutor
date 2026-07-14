@@ -230,7 +230,7 @@ async def complete_lesson_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> object:
-    course = await get_course_or_404(db, course_id)
+    await get_course_or_404(db, course_id)
     if not await is_student_enrolled(db, current_user.id, course_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -251,7 +251,6 @@ async def complete_lesson_endpoint(
     await complete_lesson(db, current_user.id, lesson_id)
     await recalculate_progress(db, current_user.id, course_id)
     new_status = await get_lesson_status(db, current_user.id, lesson_id)
-    _ = course
     return LessonRead.model_validate(lesson).model_copy(
         update={"status": new_status}
     )
