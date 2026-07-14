@@ -10,7 +10,7 @@ from auth.models import User, UserRole
 from chat.models import ChatMessage, ChatSession, MessageRole
 from chat.schemas import AskResponse, SessionCreate
 from courses.service import get_course_or_404, get_lesson_or_404_by_id
-from enrollments.service import is_student_enrolled
+from enrollments.service import is_lesson_accessible, is_student_enrolled
 from core.config import settings
 from core.llm import embed_text, generate
 from materials.service import search_chunks_by_lesson
@@ -76,18 +76,18 @@ async def create_session(
     lesson = await get_lesson_or_404_by_id(db, payload.lesson_id)
     course = await get_course_or_404(db, lesson.course_id)
 
-    is_allowed = (
-        user.role == UserRole.admin
-        or course.teacher_id == user.id
-        or await is_student_enrolled(db, user.id, course.id)
-    )
-    if not is_allowed:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Must be enrolled in the course to start a chat session",
-        )
-
-    # TODO: block locked lessons after етап 7 (LessonProgress.status != 'locked')
+    privileged = user.role == UserRole.admin or course.teacher_id == user.id
+    if not privileged:
+        if not await is_student_enrolled(db, user.id, course.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Must be enrolled in the course to start a chat session",
+            )
+        if not await is_lesson_accessible(db, user.id, lesson.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Lesson is locked, complete previous lessons first",
+            )
 
     title = payload.title or f"Chat: {lesson.title}"
     session = ChatSession(

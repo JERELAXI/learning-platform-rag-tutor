@@ -103,6 +103,30 @@ async def list_lessons(db: AsyncSession, course_id: uuid.UUID) -> list[Lesson]:
     return list(result.scalars().all())
 
 
+async def get_next_lesson_by_order(
+    db: AsyncSession, course_id: uuid.UUID, current_order: int
+) -> Lesson | None:
+    result = await db.execute(
+        select(Lesson)
+        .where(Lesson.course_id == course_id, Lesson.order > current_order)
+        .order_by(Lesson.order)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_previous_lesson_by_order(
+    db: AsyncSession, course_id: uuid.UUID, current_order: int
+) -> Lesson | None:
+    result = await db.execute(
+        select(Lesson)
+        .where(Lesson.course_id == course_id, Lesson.order < current_order)
+        .order_by(Lesson.order.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_lesson(
     db: AsyncSession, course_id: uuid.UUID, payload: LessonCreate
 ) -> Lesson:
@@ -129,3 +153,28 @@ async def update_lesson(db: AsyncSession, lesson: Lesson, payload: LessonUpdate)
 async def delete_lesson(db: AsyncSession, lesson: Lesson) -> None:
     await db.delete(lesson)
     await db.commit()
+
+
+async def reorder_lessons(
+    db: AsyncSession, course_id: uuid.UUID, items: list[tuple[uuid.UUID, int]]
+) -> list[Lesson]:
+    """Bulk-update lesson.order. Only lessons belonging to `course_id` are touched.
+
+    NOTE (MVP): reorder does not recompute LessonProgress statuses. A student
+    mid-course may find a lesson that was previously `available` become
+    logically `locked` after teacher reshuffles — acceptable per project spec.
+    """
+    ids = [i for i, _ in items]
+    result = await db.execute(
+        select(Lesson).where(Lesson.course_id == course_id, Lesson.id.in_(ids))
+    )
+    lessons_by_id = {l.id: l for l in result.scalars().all()}
+    if len(lessons_by_id) != len(ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One or more lessons not found in this course",
+        )
+    for lesson_id, new_order in items:
+        lessons_by_id[lesson_id].order = new_order
+    await db.commit()
+    return await list_lessons(db, course_id)

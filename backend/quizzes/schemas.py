@@ -65,3 +65,5 @@ class ResultRead(BaseModel):
     score: float
     answers: list[int]
     submitted_at: datetime
+    passed: bool = False
+    lesson_completed: bool = False

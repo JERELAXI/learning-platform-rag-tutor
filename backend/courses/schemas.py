@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from enrollments.models import LessonProgressStatus
+
 
 class CourseCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
@@ -48,3 +50,9 @@ class LessonRead(BaseModel):
     content: str | None
     order: int
     created_at: datetime
+    status: LessonProgressStatus | None = None
+
+
+class LessonReorderItem(BaseModel):
+    lesson_id: uuid.UUID
+    order: int = Field(ge=0)
