@@ -12,10 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.models import User, UserRole
 from courses.service import get_course_or_404, get_lesson_or_404_by_id
 from core.llm import generate
-from enrollments.service import is_student_enrolled
+from enrollments.service import (
+    complete_lesson,
+    is_student_enrolled,
+    recalculate_progress,
+)
 from materials.service import get_lesson_full_text
 from quizzes.models import Quiz, QuizResult
-from quizzes.schemas import QuizGenerate, QuizUpdate, SubmitRequest
+from quizzes.schemas import QuizGenerate, QuizUpdate, ResultRead, SubmitRequest
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +93,15 @@ async def _ensure_can_view(db: AsyncSession, course, user: User) -> None:
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Must be enrolled in the course to access the quiz",
     )
+
+
+async def quiz_exists_for_lesson(
+    db: AsyncSession, lesson_id: uuid.UUID
+) -> bool:
+    result = await db.execute(
+        select(Quiz.id).where(Quiz.lesson_id == lesson_id)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def get_quiz_or_404(db: AsyncSession, quiz_id: uuid.UUID) -> Quiz:
@@ -209,7 +222,7 @@ async def get_quiz_for_user(
 
 async def submit_quiz(
     db: AsyncSession, quiz_id: uuid.UUID, payload: SubmitRequest, user: User
-) -> QuizResult:
+) -> ResultRead:
     quiz = await get_quiz_or_404(db, quiz_id)
     _lesson, course = await _course_for_lesson(db, quiz.lesson_id)
 
@@ -248,16 +261,24 @@ async def submit_quiz(
     await db.commit()
     await db.refresh(result)
 
+    passed = score >= quiz.pass_threshold
+    lesson_completed = False
     logger.info(
         "quiz submit: quiz=%s student=%s score=%.2f passed=%s",
         quiz.id,
         user.id,
         score,
-        score >= quiz.pass_threshold,
+        passed,
     )
 
-    # TODO: trigger LessonProgress completion after етап 7
-    return result
+    if passed and user.role != UserRole.admin and course.teacher_id != user.id:
+        await complete_lesson(db, user.id, quiz.lesson_id)
+        await recalculate_progress(db, user.id, course.id)
+        lesson_completed = True
+
+    return ResultRead.model_validate(result).model_copy(
+        update={"passed": passed, "lesson_completed": lesson_completed}
+    )
 
 
 async def list_my_results(
