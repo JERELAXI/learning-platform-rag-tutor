@@ -8,7 +8,7 @@ from fastapi import HTTPException, UploadFile, status
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from core.config import settings
 from core.db import async_session
@@ -103,9 +103,18 @@ async def _set_status(
         await db.commit()
 
 
-async def process_material(material_id: uuid.UUID) -> None:
-    """Background task: extract → chunk → embed → insert. Owns its own DB session."""
-    async with async_session() as db:
+async def process_material(
+    material_id: uuid.UUID,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> None:
+    """Background task: extract → chunk → embed → insert. Owns its own DB session.
+
+    `session_factory` lets Celery pass in a session bound to a per-task engine
+    (see materials/tasks.py). Defaults to the module-level `async_session` for
+    in-process use (e.g. BackgroundTasks fallback).
+    """
+    factory = session_factory or async_session
+    async with factory() as db:
         material = await db.get(Material, material_id)
         if material is None:
             logger.error("process_material: material %s not found", material_id)
