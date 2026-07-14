@@ -199,6 +199,22 @@ async def search_chunks_by_lesson(
     return rows
 
 
+async def get_lesson_full_text(db: AsyncSession, lesson_id: uuid.UUID) -> str:
+    """Concatenate content of all ready chunks in the lesson, ordered by
+    (material_id, chunk_index). Used by quiz generation as source text."""
+    stmt = (
+        select(DocumentChunk.content)
+        .join(Material, Material.id == DocumentChunk.material_id)
+        .where(
+            Material.lesson_id == lesson_id,
+            Material.status == MaterialStatus.ready,
+        )
+        .order_by(DocumentChunk.material_id, DocumentChunk.chunk_index)
+    )
+    result = await db.execute(stmt)
+    return "\n\n".join(result.scalars().all())
+
+
 async def reset_material_for_reprocess(
     db: AsyncSession, material: Material
 ) -> None:

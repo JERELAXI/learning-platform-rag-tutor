@@ -20,6 +20,7 @@ from courses import models as _courses_models  # noqa: E402,F401
 from enrollments import models as _enrollments_models  # noqa: E402,F401
 from materials import models as _materials_models  # noqa: E402,F401
 from chat import models as _chat_models  # noqa: E402,F401
+from quizzes import models as _quizzes_models  # noqa: E402,F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
