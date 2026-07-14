@@ -3,7 +3,6 @@ from typing import Annotated
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     HTTPException,
     UploadFile,
@@ -23,10 +22,10 @@ from materials.service import (
     delete_material,
     get_material_or_404,
     list_lesson_materials,
-    process_material,
     reset_material_for_reprocess,
     save_upload,
 )
+from materials.tasks import process_material_task
 
 router = APIRouter(prefix="/api/lessons/{lesson_id}/materials", tags=["materials"])
 
@@ -61,14 +60,13 @@ async def _ensure_can_view(db: AsyncSession, course: Course, user: User) -> None
 async def upload_material(
     lesson_id: uuid.UUID,
     file: UploadFile,
-    background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> object:
     course = await _get_course_for_lesson(db, lesson_id)
     ensure_owner_or_admin(course, current_user)
     material = await save_upload(db, lesson_id, file)
-    background_tasks.add_task(process_material, material.id)
+    process_material_task.delay(str(material.id))
     return material
 
 
@@ -125,7 +123,6 @@ async def delete_material_endpoint(
 async def reprocess_material(
     lesson_id: uuid.UUID,
     material_id: uuid.UUID,
-    background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> object:
@@ -137,5 +134,5 @@ async def reprocess_material(
             status_code=status.HTTP_404_NOT_FOUND, detail="Material not found"
         )
     await reset_material_for_reprocess(db, material)
-    background_tasks.add_task(process_material, material.id)
+    process_material_task.delay(str(material.id))
     return material

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     RAG_DISTANCE_THRESHOLD: float = 0.55
 
+    REDIS_URL: str = "redis://redis:6379/0"
+
     UPLOADS_DIR: str = "uploads"
 
 
