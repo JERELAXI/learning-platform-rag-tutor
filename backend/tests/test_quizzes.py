@@ -88,6 +88,41 @@ async def test_get_quiz_student_hides_correct_index(
         assert "correct_index" in q
 
 
+async def test_lesson_read_exposes_quiz_id(
+    client, enrolled_student, teacher, lessons, db, auth_headers
+):
+    """Without quiz_id on the lesson a student has no way to reach the quiz."""
+    await _seed_material_with_text(db, lessons[0].id)
+    gen = await client.post(
+        "/api/quizzes/generate",
+        headers=auth_headers(teacher),
+        json={"lesson_id": str(lessons[0].id), "num_questions": 3},
+    )
+    quiz_id = gen.json()["id"]
+
+    lst = await client.get(
+        f"/api/courses/{lessons[0].course_id}/lessons/",
+        headers=auth_headers(enrolled_student),
+    )
+    assert lst.status_code == 200
+    by_title = {lesson["title"]: lesson["quiz_id"] for lesson in lst.json()}
+    assert by_title == {"L1": quiz_id, "L2": None, "L3": None}
+
+    one = await client.get(
+        f"/api/courses/{lessons[0].course_id}/lessons/{lessons[0].id}",
+        headers=auth_headers(enrolled_student),
+    )
+    assert one.json()["quiz_id"] == quiz_id
+
+    # Teacher view carries quiz_id too, but no student progress status.
+    teacher_view = await client.get(
+        f"/api/courses/{lessons[0].course_id}/lessons/",
+        headers=auth_headers(teacher),
+    )
+    assert teacher_view.json()[0]["quiz_id"] == quiz_id
+    assert teacher_view.json()[0]["status"] is None
+
+
 async def test_submit_scores_correctly(
     client, enrolled_student, teacher, lessons, db, auth_headers
 ):

@@ -53,7 +53,7 @@ async def get_session(
     session_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-) -> object:
+) -> SessionDetail:
     return await get_session_with_messages(db, session_id, current_user)
 
 
@@ -74,7 +74,7 @@ async def get_messages(
     session_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-) -> list:
+) -> list[MessageRead]:
     return await list_session_messages(db, session_id, current_user)
 
 

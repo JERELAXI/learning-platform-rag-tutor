@@ -1,7 +1,9 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from auth.routes import router as auth_router
 from chat.routes import router as chat_router
+from core.config import settings
 from core.logging import setup_logging
 from courses.routes import courses_router, lessons_router
 from enrollments.routes import router as enrollments_router
@@ -12,6 +14,14 @@ from users.routes import router as users_router
 setup_logging()
 
 app = FastAPI(title="Learning Platform RAG Tutor")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(auth_router)
 app.include_router(courses_router)

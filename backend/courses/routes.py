@@ -1,5 +1,6 @@
 import uuid
-from typing import Annotated
+from collections.abc import Sequence
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.dependencies import get_current_user, require_role
 from auth.models import User, UserRole
 from core.db import get_db
+from courses.models import Lesson
 from courses.schemas import (
     CourseCreate,
     CourseRead,
@@ -39,7 +41,7 @@ from enrollments.service import (
     is_student_enrolled,
     recalculate_progress,
 )
-from quizzes.service import quiz_exists_for_lesson
+from quizzes.service import get_quiz_ids_for_lessons, quiz_exists_for_lesson
 
 courses_router = APIRouter(prefix="/api/courses", tags=["courses"])
 lessons_router = APIRouter(prefix="/api/courses/{course_id}/lessons", tags=["lessons"])
@@ -115,6 +117,26 @@ def _is_privileged(user: User, course) -> bool:
     return user.role == UserRole.admin or course.teacher_id == user.id
 
 
+async def _to_lesson_reads(
+    db: AsyncSession,
+    lessons: Sequence[Lesson],
+    statuses: dict[uuid.UUID, LessonProgressStatus] | None = None,
+) -> list[LessonRead]:
+    """Serialize lessons, attaching the fields the ORM row doesn't carry.
+
+    `quiz_id` comes from one bulk query for the whole list. `statuses` is passed
+    only for students — teacher/admin get `status=None`.
+    """
+    quiz_ids = await get_quiz_ids_for_lessons(db, [lesson.id for lesson in lessons])
+    out: list[LessonRead] = []
+    for lesson in lessons:
+        update: dict[str, Any] = {"quiz_id": quiz_ids.get(lesson.id)}
+        if statuses is not None:
+            update["status"] = statuses.get(lesson.id, LessonProgressStatus.locked)
+        out.append(LessonRead.model_validate(lesson).model_copy(update=update))
+    return out
+
+
 @lessons_router.get("/", response_model=list[LessonRead])
 async def get_lessons(
     course_id: uuid.UUID,
@@ -130,16 +152,11 @@ async def get_lessons(
         )
     lessons = await list_lessons(db, course_id)
     if privileged:
-        return [LessonRead.model_validate(l) for l in lessons]
+        return await _to_lesson_reads(db, lessons)
     statuses = await get_lesson_statuses_for_course(
         db, current_user.id, course_id
     )
-    return [
-        LessonRead.model_validate(l).model_copy(
-            update={"status": statuses.get(l.id, LessonProgressStatus.locked)}
-        )
-        for l in lessons
-    ]
+    return await _to_lesson_reads(db, lessons, statuses)
 
 
 @lessons_router.post("/", response_model=LessonRead, status_code=status.HTTP_201_CREATED)
@@ -165,7 +182,7 @@ async def reorder_lessons_endpoint(
     course = await get_course_or_404(db, course_id)
     ensure_owner_or_admin(course, current_user)
     items = [(item.lesson_id, item.order) for item in payload]
-    return await reorder_lessons(db, course_id, items)
+    return await _to_lesson_reads(db, await reorder_lessons(db, course_id, items))
 
 
 @lessons_router.get("/{lesson_id}", response_model=LessonRead)
@@ -184,16 +201,14 @@ async def get_lesson(
         )
     lesson = await get_lesson_or_404(db, course_id, lesson_id)
     if privileged:
-        return LessonRead.model_validate(lesson)
+        return (await _to_lesson_reads(db, [lesson]))[0]
     lesson_status = await get_lesson_status(db, current_user.id, lesson_id)
     if lesson_status == LessonProgressStatus.locked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Lesson is locked, complete previous lessons first",
         )
-    return LessonRead.model_validate(lesson).model_copy(
-        update={"status": lesson_status}
-    )
+    return (await _to_lesson_reads(db, [lesson], {lesson.id: lesson_status}))[0]
 
 
 @lessons_router.patch("/{lesson_id}", response_model=LessonRead)
@@ -207,7 +222,7 @@ async def patch_lesson(
     course = await get_course_or_404(db, course_id)
     ensure_owner_or_admin(course, current_user)
     lesson = await get_lesson_or_404(db, course_id, lesson_id)
-    return await update_lesson(db, lesson, payload)
+    return (await _to_lesson_reads(db, [await update_lesson(db, lesson, payload)]))[0]
 
 
 @lessons_router.delete("/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -251,6 +266,4 @@ async def complete_lesson_endpoint(
     await complete_lesson(db, current_user.id, lesson_id)
     await recalculate_progress(db, current_user.id, course_id)
     new_status = await get_lesson_status(db, current_user.id, lesson_id)
-    return LessonRead.model_validate(lesson).model_copy(
-        update={"status": new_status}
-    )
+    return (await _to_lesson_reads(db, [lesson], {lesson.id: new_status}))[0]

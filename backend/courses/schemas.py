@@ -50,7 +50,10 @@ class LessonRead(BaseModel):
     content: str | None
     order: int
     created_at: datetime
+    # Filled by the route layer, not the ORM: `status` only for students
+    # (teacher/admin see None), `quiz_id` whenever the lesson has a quiz.
     status: LessonProgressStatus | None = None
+    quiz_id: uuid.UUID | None = None
 
 
 class LessonReorderItem(BaseModel):

@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -8,16 +9,25 @@ from sqlalchemy.orm import selectinload
 
 from auth.models import User, UserRole
 from chat.models import ChatMessage, ChatSession, MessageRole
-from chat.schemas import AskResponse, SessionCreate
+from chat.schemas import (
+    AskResponse,
+    MessageRead,
+    SessionCreate,
+    SessionDetail,
+    SourceRead,
+)
 from courses.service import get_course_or_404, get_lesson_or_404_by_id
 from enrollments.service import is_lesson_accessible, is_student_enrolled
 from core.config import settings
 from core.llm import embed_text, generate
-from materials.service import search_chunks_by_lesson
+from materials.service import get_chunks_by_ids, search_chunks_by_lesson
 
 logger = logging.getLogger(__name__)
 
 TOP_K = 5
+
+# Chunks run ~800 chars; a citation only needs enough to recognise the passage.
+SNIPPET_MAX_CHARS = 300
 
 SYSTEM_PROMPT_TEMPLATE = """Ти — AI-репетитор. Відповідай ТІЛЬКИ на основі наданого контексту.
 
@@ -70,6 +80,59 @@ def _ensure_owner(session: ChatSession, user: User) -> None:
         )
 
 
+def _snippet(content: str) -> str:
+    if len(content) <= SNIPPET_MAX_CHARS:
+        return content
+    return content[:SNIPPET_MAX_CHARS].rstrip() + "…"
+
+
+async def _build_sources(
+    db: AsyncSession, chunk_ids: Sequence[str]
+) -> list[SourceRead]:
+    """Resolve stored chunk ids into snippets, keeping the stored order.
+
+    Ids that no longer resolve are dropped: a reprocessed material replaces its
+    chunks with new ones, so old citations legitimately dangle.
+    """
+    parsed: list[uuid.UUID] = []
+    for raw in chunk_ids:
+        try:
+            parsed.append(uuid.UUID(raw))
+        except (AttributeError, TypeError, ValueError):
+            continue
+    if not parsed:
+        return []
+    by_id = {
+        chunk.id: SourceRead(
+            id=chunk.id,
+            content=_snippet(chunk.content),
+            filename=filename,
+            chunk_index=chunk.chunk_index,
+        )
+        for chunk, filename in await get_chunks_by_ids(db, parsed)
+    }
+    return [by_id[chunk_id] for chunk_id in parsed if chunk_id in by_id]
+
+
+async def _messages_to_reads(
+    db: AsyncSession, messages: Sequence[ChatMessage]
+) -> list[MessageRead]:
+    """Serialize messages, resolving every message's sources in one query."""
+    all_ids = [cid for m in messages for cid in (m.sources or [])]
+    lookup = {str(s.id): s for s in await _build_sources(db, all_ids)}
+    return [
+        MessageRead(
+            id=m.id,
+            session_id=m.session_id,
+            role=m.role,
+            content=m.content,
+            sources=[lookup[cid] for cid in (m.sources or []) if cid in lookup],
+            created_at=m.created_at,
+        )
+        for m in messages
+    ]
+
+
 async def create_session(
     db: AsyncSession, payload: SessionCreate, user: User
 ) -> ChatSession:
@@ -112,7 +175,7 @@ async def list_my_sessions(
 
 async def get_session_with_messages(
     db: AsyncSession, session_id: uuid.UUID, user: User
-) -> ChatSession:
+) -> SessionDetail:
     result = await db.execute(
         select(ChatSession)
         .where(ChatSession.id == session_id)
@@ -124,12 +187,19 @@ async def get_session_with_messages(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         )
     _ensure_owner(session, user)
-    return session
+    return SessionDetail(
+        id=session.id,
+        student_id=session.student_id,
+        lesson_id=session.lesson_id,
+        title=session.title,
+        created_at=session.created_at,
+        messages=await _messages_to_reads(db, session.messages),
+    )
 
 
 async def list_session_messages(
     db: AsyncSession, session_id: uuid.UUID, user: User
-) -> list[ChatMessage]:
+) -> list[MessageRead]:
     session = await _get_session_or_404(db, session_id)
     _ensure_owner(session, user)
     result = await db.execute(
@@ -137,7 +207,7 @@ async def list_session_messages(
         .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.created_at)
     )
-    return list(result.scalars().all())
+    return await _messages_to_reads(db, list(result.scalars().all()))
 
 
 async def delete_session(
@@ -150,14 +220,14 @@ async def delete_session(
 
 
 async def _save_and_return(
-    db: AsyncSession, session_id: uuid.UUID, answer: str, sources: list[str]
+    db: AsyncSession, session_id: uuid.UUID, answer: str, sources: list[SourceRead]
 ) -> AskResponse:
     db.add(
         ChatMessage(
             session_id=session_id,
             role=MessageRole.assistant,
             content=answer,
-            sources=sources,
+            sources=[str(source.id) for source in sources],
         )
     )
     await db.commit()
@@ -204,6 +274,9 @@ async def ask(
     )
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(context=context)
 
+    # Same code path as message history, so a live answer and its replay from
+    # the DB always carry identically-shaped sources. It also fetches the
+    # material filename, which retrieval doesn't select.
+    sources = await _build_sources(db, [str(chunk.id) for chunk in chunks])
     answer = await generate(prompt=question, system=system_prompt)
-    source_ids = [str(chunk.id) for chunk in chunks]
-    return await _save_and_return(db, session.id, answer, source_ids)
+    return await _save_and_return(db, session.id, answer, sources)

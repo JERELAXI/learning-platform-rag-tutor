@@ -1,6 +1,7 @@
 import logging
 import os
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from docx import Document as DocxDocument
@@ -206,6 +207,26 @@ async def search_chunks_by_lesson(
     if distance_threshold is not None:
         rows = [(c, d) for c, d in rows if d <= distance_threshold]
     return rows
+
+
+async def get_chunks_by_ids(
+    db: AsyncSession, chunk_ids: Sequence[uuid.UUID]
+) -> list[tuple[DocumentChunk, str]]:
+    """Return (chunk, material_filename) for the given chunk ids.
+
+    Lets chat turn the chunk ids stored in `ChatMessage.sources` back into
+    displayable snippets. Ids whose chunk is gone (material deleted, or
+    reprocessed into new chunks) are simply absent from the result.
+    """
+    if not chunk_ids:
+        return []
+    stmt = (
+        select(DocumentChunk, Material.filename)
+        .join(Material, Material.id == DocumentChunk.material_id)
+        .where(DocumentChunk.id.in_(chunk_ids))
+    )
+    result = await db.execute(stmt)
+    return [(chunk, filename) for chunk, filename in result.all()]
 
 
 async def get_lesson_full_text(db: AsyncSession, lesson_id: uuid.UUID) -> str:

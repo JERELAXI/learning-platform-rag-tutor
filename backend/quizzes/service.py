@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -102,6 +103,22 @@ async def quiz_exists_for_lesson(
         select(Quiz.id).where(Quiz.lesson_id == lesson_id)
     )
     return result.scalar_one_or_none() is not None
+
+
+async def get_quiz_ids_for_lessons(
+    db: AsyncSession, lesson_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, uuid.UUID]:
+    """{lesson_id: quiz_id} for those lessons that have a quiz.
+
+    One query for a whole lesson list — lets `LessonRead.quiz_id` be filled
+    without a per-lesson lookup, so clients can reach a lesson's quiz at all.
+    """
+    if not lesson_ids:
+        return {}
+    result = await db.execute(
+        select(Quiz.lesson_id, Quiz.id).where(Quiz.lesson_id.in_(lesson_ids))
+    )
+    return {lesson_id: quiz_id for lesson_id, quiz_id in result.all()}
 
 
 async def get_quiz_or_404(db: AsyncSession, quiz_id: uuid.UUID) -> Quiz:

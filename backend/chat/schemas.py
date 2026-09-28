@@ -21,6 +21,19 @@ class SessionRead(BaseModel):
     created_at: datetime
 
 
+class SourceRead(BaseModel):
+    """One retrieved chunk, as shown under the tutor's answer.
+
+    `ChatMessage.sources` stores bare chunk ids; the service resolves them into
+    these on read, so no migration is needed and the text is never duplicated.
+    """
+
+    id: uuid.UUID
+    content: str
+    filename: str
+    chunk_index: int
+
+
 class MessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -28,7 +41,7 @@ class MessageRead(BaseModel):
     session_id: uuid.UUID
     role: MessageRole
     content: str
-    sources: list[str]
+    sources: list[SourceRead]
     created_at: datetime
 
 
@@ -42,4 +55,4 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
-    sources: list[str]
+    sources: list[SourceRead]
