@@ -1,0 +1,42 @@
+@import 'tailwindcss';
+
+/* Design tokens. Semantic names, so a colour decision lives in one place and
+   screens never hardcode a hex. Direction: modern product / SaaS — white
+   surfaces on a cool canvas, one violet accent, emerald reserved for
+   "completed", muted zinc for "locked". */
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+
+  /* Text */
+  --color-ink: #18181b;
+  --color-ink-soft: #52525b;
+  --color-ink-muted: #a1a1aa;
+
+  /* Backgrounds and separators */
+  --color-canvas: #f1f5f9;
+  --color-surface: #ffffff;
+  --color-line: #e4e4e7;
+
+  /* Accent — actions, active nav, the tutor's own voice */
+  --color-brand: #7c3aed;
+  --color-brand-strong: #6d28d9;
+  --color-brand-soft: #f5f3ff;
+
+  /* Lesson progress: completed */
+  --color-done: #059669;
+  --color-done-soft: #ecfdf5;
+
+  /* Errors and failed quiz attempts */
+  --color-danger: #dc2626;
+  --color-danger-soft: #fef2f2;
+
+  --radius-card: 12px;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+}
