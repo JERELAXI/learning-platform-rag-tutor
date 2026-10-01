@@ -146,7 +146,10 @@ async def get_lesson_status(
     """
     existing = await _get_progress(db, student_id, lesson_id)
     if existing is not None:
-        return existing.status
+        # The column is String(16), not Enum, so SQLAlchemy hands back a plain
+        # str — coerce it so the declared return type is actually true and
+        # Pydantic doesn't warn when the value reaches a response schema.
+        return LessonProgressStatus(existing.status)
 
     lesson = await get_lesson_or_404_by_id(db, lesson_id)
     prev = await get_previous_lesson_by_order(db, lesson.course_id, lesson.order)
@@ -190,7 +193,9 @@ async def get_lesson_statuses_for_course(
             LessonProgress.lesson_id.in_(lesson_ids),
         )
     )
-    existing = {p.lesson_id: p.status for p in result.scalars().all()}
+    existing = {
+        p.lesson_id: LessonProgressStatus(p.status) for p in result.scalars().all()
+    }
     if len(existing) < len(lessons):
         for lesson in lessons:
             if lesson.id not in existing:
