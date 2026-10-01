@@ -112,6 +112,56 @@ export function FullPageSpinner() {
   )
 }
 
+/** Nothing to show, but nothing went wrong. */
+export function EmptyState({
+  title,
+  note,
+  action,
+}: {
+  title: string
+  note: string
+  action?: ReactNode
+}) {
+  return (
+    <div className="rounded-card border border-dashed border-line bg-surface/60 px-6 py-12 text-center">
+      <p className="text-sm font-medium text-ink">{title}</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-ink-muted">{note}</p>
+      {action !== undefined ? <div className="mt-4">{action}</div> : null}
+    </div>
+  )
+}
+
+/** A failed load, with a way back — unlike ErrorBanner, which annotates a form. */
+export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-card border border-danger/20 bg-danger-soft px-6 py-10 text-center">
+      <p className="text-sm font-medium text-danger">Не вдалося завантажити</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-danger/80">{message}</p>
+      <Button variant="secondary" className="mt-4" onClick={onRetry}>
+        Спробувати ще раз
+      </Button>
+    </div>
+  )
+}
+
+export function ProgressBar({ percent }: { percent: number }) {
+  const clamped = Math.max(0, Math.min(100, percent))
+  return (
+    <div
+      role="progressbar"
+      aria-valuenow={Math.round(clamped)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className="h-1.5 w-full overflow-hidden rounded-full bg-canvas"
+    >
+      <div
+        className="h-full rounded-full bg-brand transition-[width] duration-500"
+        style={{ width: `${String(clamped)}%` }}
+      />
+    </div>
+  )
+}
+
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
 export function Card({ className = '', children }: { className?: string; children: ReactNode }) {
