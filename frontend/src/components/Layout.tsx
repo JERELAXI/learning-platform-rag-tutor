@@ -56,7 +56,7 @@ export function Layout() {
       <header className="sticky top-0 z-10 border-b border-line bg-surface/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4">
           <NavLink to="/" className="mr-2 font-semibold tracking-tight whitespace-nowrap">
-            RAG&nbsp;Tutor
+            Socratic
           </NavLink>
 
           <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">

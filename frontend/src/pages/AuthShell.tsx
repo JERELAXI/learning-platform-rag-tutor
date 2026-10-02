@@ -18,7 +18,7 @@ export function AuthShell({
     <div className="grid min-h-dvh place-items-center bg-canvas px-4 py-10 font-sans text-ink">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <div className="text-lg font-semibold tracking-tight">RAG Tutor</div>
+          <div className="text-lg font-semibold tracking-tight">Socratic</div>
           <p className="mt-1 text-sm text-ink-muted">Навчальна платформа з AI-репетитором</p>
         </div>
 

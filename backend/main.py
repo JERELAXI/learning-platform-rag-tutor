@@ -13,7 +13,7 @@ from users.routes import router as users_router
 
 setup_logging()
 
-app = FastAPI(title="Learning Platform RAG Tutor")
+app = FastAPI(title="Socratic API")
 
 app.add_middleware(
     CORSMiddleware,

@@ -12,8 +12,8 @@
 
 import type { TokenResponse } from './types'
 
-const ACCESS_KEY = 'rag-tutor.access-token'
-const REFRESH_KEY = 'rag-tutor.refresh-token'
+const ACCESS_KEY = 'socratic.access-token'
+const REFRESH_KEY = 'socratic.refresh-token'
 
 const listeners = new Set<() => void>()
 
