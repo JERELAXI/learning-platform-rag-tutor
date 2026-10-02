@@ -10,6 +10,7 @@ import { CoursePage } from './pages/CoursePage'
 import { LessonPage } from './pages/LessonPage'
 import { LoginPage } from './pages/LoginPage'
 import { MyLearningPage } from './pages/MyLearningPage'
+import { QuizPage } from './pages/QuizPage'
 import { RegisterPage } from './pages/RegisterPage'
 
 export default function App() {
@@ -28,15 +29,7 @@ export default function App() {
               <Route path="courses/:courseId" element={<CoursePage />}>
                 <Route index element={<CourseOverview />} />
                 <Route path="lessons/:lessonId" element={<LessonPage />} />
-                <Route
-                  path="lessons/:lessonId/quiz"
-                  element={
-                    <PlaceholderPage
-                      title="Квіз"
-                      note="Тут будуть питання без правильних відповідей, submit і результат із розблокуванням наступного уроку."
-                    />
-                  }
-                />
+                <Route path="lessons/:lessonId/quiz" element={<QuizPage />} />
               </Route>
               <Route path="my" element={<MyLearningPage />} />
 
