@@ -202,9 +202,11 @@ export function TeachPage() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Викладання</h1>
-          <p className="mt-1 text-sm text-ink-soft">
-            Твої курси — чернетки та опубліковані. Студенти бачать лише
-            опубліковані.
+          <p className="mt-1 max-w-xl text-sm text-ink-soft">
+            Твої курси — чернетки та опубліковані. У каталозі студенти бачать
+            лише опубліковані. Зняття з публікації закриває{' '}
+            <strong className="font-medium text-ink">нові записи</strong>, але ті,
+            хто вже записався, продовжують навчання.
           </p>
         </div>
         <NewCourseForm onCreated={courses.reload} />

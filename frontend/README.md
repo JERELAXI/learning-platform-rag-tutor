@@ -28,7 +28,24 @@ CORS — змінна `CORS_ORIGINS`.
 | `npm run dev` | dev-сервер із HMR на :5173 |
 | `npm run build` | перевірка типів (`tsc -b`) + прод-збірка в `dist/` |
 | `npm run lint` | oxlint |
+| `npm test` | Vitest, один прогін |
+| `npm run test:watch` | Vitest у режимі спостереження |
 | `npm run preview` | локальний перегляд прод-збірки |
+
+## Тести
+
+Vitest + jsdom + Testing Library, **без Docker і без бекенду** — сервер
+підміняється на рівні `fetch`. Покривають те, що руками не перевіриш:
+
+- `api/client.test.ts` — рефреш токена на 401 із реплеєм запиту, single-flight
+  (пʼять одночасних 401 дають **один** виклик `/auth/refresh`), розбір обох
+  форм помилок FastAPI, 204 → `void`, FormData без `Content-Type`
+- `api/tokens.test.ts` — сховище й підписки, плюс падаючий `localStorage`
+  (приватний Safari) — застосунок мусить працювати без персистентності
+- `api/types.test.ts` — ієрархія ролей, звуження union-типу квіза
+- `hooks/useApi.test.ts` — скасування запиту при зміні фетчера, `reload`,
+  збереження попередніх даних під час перезапиту
+- `auth/guards.test.tsx` — `RequireAuth` і `RequireRole` за `role_level`
 
 ## Дизайн
 
