@@ -132,7 +132,14 @@ async def _to_lesson_reads(
     for lesson in lessons:
         update: dict[str, Any] = {"quiz_id": quiz_ids.get(lesson.id)}
         if statuses is not None:
-            update["status"] = statuses.get(lesson.id, LessonProgressStatus.locked)
+            lesson_status = statuses.get(lesson.id, LessonProgressStatus.locked)
+            update["status"] = lesson_status
+            if lesson_status == LessonProgressStatus.locked:
+                # Withhold the body of a lesson the student has not unlocked.
+                # GET /lessons/{id} answers 403 for a locked lesson; the list
+                # has to agree with it, otherwise sequential unlocking is just
+                # a label and the content is one DevTools panel away.
+                update["content"] = None
         out.append(LessonRead.model_validate(lesson).model_copy(update=update))
     return out
 
