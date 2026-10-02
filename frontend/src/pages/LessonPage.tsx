@@ -5,7 +5,8 @@ import { completeLesson, getLesson } from '../api/courses'
 import { listMaterials } from '../api/materials'
 import { isMaterialInFlight } from '../api/types'
 import type { MaterialRead, MaterialStatus } from '../api/types'
-import { FileIcon, SparkIcon } from '../components/icons'
+import { FileIcon } from '../components/icons'
+import { TutorPanel } from '../components/TutorPanel'
 import {
   Button,
   Card,
@@ -188,15 +189,9 @@ export function LessonPage() {
         ) : null}
       </div>
 
-      {/* Right: the tutor. Filled in by the next step; the column exists now so
-          the split layout is settled and the lesson does not reflow later. */}
-      <Card className="flex min-h-64 flex-col items-center justify-center gap-2 p-6 text-center xl:sticky xl:top-20">
-        <SparkIcon className="size-6 text-brand" />
-        <h2 className="text-sm font-semibold tracking-tight">AI-репетитор</h2>
-        <p className="max-w-56 text-xs text-ink-muted">
-          Чат із цитатами з матеріалів уроку — наступний крок.
-        </p>
-      </Card>
+      {/* Right: the tutor, scoped to this lesson. Remounted per lesson via the
+          key so switching lessons never carries a conversation across. */}
+      <TutorPanel key={lessonId} lessonId={lessonId} />
     </div>
   )
 }
