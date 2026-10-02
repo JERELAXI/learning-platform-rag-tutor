@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { CourseRead, LessonRead } from './types'
+import type { CourseCreate, CourseRead, CourseUpdate, LessonRead } from './types'
 
 export interface CourseFilters {
   published?: boolean
@@ -27,6 +27,24 @@ export function listCourses(
 
 export function getCourse(courseId: string, signal?: AbortSignal): Promise<CourseRead> {
   return api.get<CourseRead>(`/courses/${courseId}`, { signal })
+}
+
+/** Courses owned by the signed-in teacher, drafts included. Teacher+ only. */
+export function listMyCourses(signal?: AbortSignal): Promise<CourseRead[]> {
+  return api.get<CourseRead[]>('/courses/my', { signal })
+}
+
+export function createCourse(payload: CourseCreate): Promise<CourseRead> {
+  return api.post<CourseRead>('/courses/', payload)
+}
+
+export function updateCourse(courseId: string, payload: CourseUpdate): Promise<CourseRead> {
+  return api.patch<CourseRead>(`/courses/${courseId}`, payload)
+}
+
+/** Cascades to lessons, materials and their chunks. */
+export function deleteCourse(courseId: string): Promise<void> {
+  return api.delete(`/courses/${courseId}`)
 }
 
 /**

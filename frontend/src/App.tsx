@@ -12,6 +12,7 @@ import { LoginPage } from './pages/LoginPage'
 import { MyLearningPage } from './pages/MyLearningPage'
 import { QuizPage } from './pages/QuizPage'
 import { RegisterPage } from './pages/RegisterPage'
+import { TeachPage } from './pages/TeachPage'
 
 export default function App() {
   return (
@@ -34,15 +35,7 @@ export default function App() {
               <Route path="my" element={<MyLearningPage />} />
 
               <Route element={<RequireRole minimum="teacher" />}>
-                <Route
-                  path="teach"
-                  element={
-                    <PlaceholderPage
-                      title="Викладання"
-                      note="Тут викладач створює курси, додає уроки, вантажить матеріали й генерує квізи."
-                    />
-                  }
-                />
+                <Route path="teach" element={<TeachPage />} />
               </Route>
 
               <Route element={<RequireRole minimum="admin" />}>
