@@ -4,6 +4,7 @@ import { AuthProvider } from './auth/AuthProvider'
 import { RequireAuth, RequireRole } from './auth/guards'
 import { Layout } from './components/Layout'
 import { PlaceholderPage } from './components/ui'
+import { AdminUsersPage } from './pages/AdminUsersPage'
 import { CatalogPage } from './pages/CatalogPage'
 import { CourseOverview } from './pages/CourseOverview'
 import { CoursePage } from './pages/CoursePage'
@@ -39,15 +40,7 @@ export default function App() {
               </Route>
 
               <Route element={<RequireRole minimum="admin" />}>
-                <Route
-                  path="admin/users"
-                  element={
-                    <PlaceholderPage
-                      title="Користувачі"
-                      note="Тут адмін бачить список користувачів, змінює роль і деактивує акаунти."
-                    />
-                  }
-                />
+                <Route path="admin/users" element={<AdminUsersPage />} />
               </Route>
 
               <Route
