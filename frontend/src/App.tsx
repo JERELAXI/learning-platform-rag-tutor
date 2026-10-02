@@ -5,6 +5,9 @@ import { RequireAuth, RequireRole } from './auth/guards'
 import { Layout } from './components/Layout'
 import { PlaceholderPage } from './components/ui'
 import { CatalogPage } from './pages/CatalogPage'
+import { CourseOverview } from './pages/CourseOverview'
+import { CoursePage } from './pages/CoursePage'
+import { LessonPage } from './pages/LessonPage'
 import { LoginPage } from './pages/LoginPage'
 import { MyLearningPage } from './pages/MyLearningPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -22,15 +25,19 @@ export default function App() {
               <Route index element={<Navigate to="/courses" replace />} />
 
               <Route path="courses" element={<CatalogPage />} />
-              <Route
-                path="courses/:courseId"
-                element={
-                  <PlaceholderPage
-                    title="Курс"
-                    note="Тут буде сайдбар уроків із замками й галочками, а всередині уроку — split-view з AI-репетитором."
-                  />
-                }
-              />
+              <Route path="courses/:courseId" element={<CoursePage />}>
+                <Route index element={<CourseOverview />} />
+                <Route path="lessons/:lessonId" element={<LessonPage />} />
+                <Route
+                  path="lessons/:lessonId/quiz"
+                  element={
+                    <PlaceholderPage
+                      title="Квіз"
+                      note="Тут будуть питання без правильних відповідей, submit і результат із розблокуванням наступного уроку."
+                    />
+                  }
+                />
+              </Route>
               <Route path="my" element={<MyLearningPage />} />
 
               <Route element={<RequireRole minimum="teacher" />}>

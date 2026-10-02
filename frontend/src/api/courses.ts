@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { CourseRead } from './types'
+import type { CourseRead, LessonRead } from './types'
 
 export interface CourseFilters {
   published?: boolean
@@ -23,4 +23,31 @@ export function listCourses(
   signal?: AbortSignal,
 ): Promise<CourseRead[]> {
   return api.get<CourseRead[]>(`/courses/${buildQuery(filters)}`, { signal })
+}
+
+export function getCourse(courseId: string, signal?: AbortSignal): Promise<CourseRead> {
+  return api.get<CourseRead>(`/courses/${courseId}`, { signal })
+}
+
+/**
+ * Titles, order and per-student `status`. The body of a locked lesson comes
+ * back as `null` — read content through `getLesson`, which is the endpoint
+ * that enforces the lock.
+ */
+export function listLessons(courseId: string, signal?: AbortSignal): Promise<LessonRead[]> {
+  return api.get<LessonRead[]>(`/courses/${courseId}/lessons/`, { signal })
+}
+
+/** Answers 403 when the lesson is still locked for this student. */
+export function getLesson(
+  courseId: string,
+  lessonId: string,
+  signal?: AbortSignal,
+): Promise<LessonRead> {
+  return api.get<LessonRead>(`/courses/${courseId}/lessons/${lessonId}`, { signal })
+}
+
+/** Manual completion, allowed only for a lesson that has no quiz. */
+export function completeLesson(courseId: string, lessonId: string): Promise<LessonRead> {
+  return api.post<LessonRead>(`/courses/${courseId}/lessons/${lessonId}/complete`)
 }
