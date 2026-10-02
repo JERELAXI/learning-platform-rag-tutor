@@ -3,6 +3,7 @@ import type {
   QuizGenerate,
   QuizRead,
   QuizReadOwner,
+  QuizUpdate,
   ResultRead,
   SubmitRequest,
 } from './types'
@@ -23,6 +24,15 @@ export function generateQuiz(payload: QuizGenerate): Promise<QuizReadOwner> {
  */
 export function getQuiz(quizId: string, signal?: AbortSignal): Promise<QuizRead> {
   return api.get<QuizRead>(`/quizzes/${quizId}`, { signal })
+}
+
+/**
+ * Owner only. `questions` replaces the whole list — there is no per-question
+ * patch — so send every question, edited or not. Each one must carry exactly
+ * four options and a `correct_index` in 0–3, or the request is rejected.
+ */
+export function updateQuiz(quizId: string, payload: QuizUpdate): Promise<QuizReadOwner> {
+  return api.patch<QuizReadOwner>(`/quizzes/${quizId}`, payload)
 }
 
 /**

@@ -5,6 +5,7 @@ import { getQuiz, submitQuiz } from '../api/quizzes'
 import { isOwnerQuiz } from '../api/types'
 import type { QuizRead, ResultRead } from '../api/types'
 import { BackIcon, CheckIcon } from '../components/icons'
+import { QuizEditor } from '../components/QuizEditor'
 import {
   Button,
   Card,
@@ -91,6 +92,7 @@ export function QuizPage() {
   const [result, setResult] = useState<ResultRead | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
 
   function resetAttempt(): void {
     setResult(null)
@@ -155,6 +157,23 @@ export function QuizPage() {
   const current = quiz.data
   const showsAnswers = isOwnerQuiz(current)
 
+  if (editing && isOwnerQuiz(current)) {
+    return (
+      <QuizEditor
+        quiz={current}
+        onCancel={() => {
+          setEditing(false)
+        }}
+        onSaved={() => {
+          setEditing(false)
+          quiz.reload()
+          // Answers were indexed against the old question list.
+          resetAttempt()
+        }}
+      />
+    )
+  }
+
   if (result !== null) {
     return (
       <ResultCard
@@ -184,9 +203,19 @@ export function QuizPage() {
       </div>
 
       {showsAnswers ? (
-        <div className="rounded-lg border border-brand/20 bg-brand-soft px-3 py-2 text-sm text-brand">
-          Ти бачиш правильні відповіді, бо це твій курс. Студентам вони не
-          надсилаються.
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand/20 bg-brand-soft px-3 py-2">
+          <p className="text-sm text-brand">
+            Ти бачиш правильні відповіді, бо це твій курс. Студентам вони не
+            надсилаються.
+          </p>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setEditing(true)
+            }}
+          >
+            Редагувати квіз
+          </Button>
         </div>
       ) : null}
 
