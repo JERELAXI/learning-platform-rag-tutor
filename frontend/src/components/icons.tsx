@@ -61,6 +61,22 @@ export function SparkIcon({ className = 'size-4' }: IconProps) {
   )
 }
 
+export function UpIcon({ className = 'size-4' }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" strokeWidth={1.8} aria-hidden="true" className={className} {...STROKE}>
+      <path d="M5.5 11.5 10 7l4.5 4.5" />
+    </svg>
+  )
+}
+
+export function DownIcon({ className = 'size-4' }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" strokeWidth={1.8} aria-hidden="true" className={className} {...STROKE}>
+      <path d="M5.5 8.5 10 13l4.5-4.5" />
+    </svg>
+  )
+}
+
 export function BackIcon({ className = 'size-4' }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" strokeWidth={1.8} aria-hidden="true" className={className} {...STROKE}>

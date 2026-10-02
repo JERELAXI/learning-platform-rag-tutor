@@ -1,5 +1,13 @@
 import { api } from './client'
-import type { CourseCreate, CourseRead, CourseUpdate, LessonRead } from './types'
+import type {
+  CourseCreate,
+  CourseRead,
+  CourseUpdate,
+  LessonCreate,
+  LessonRead,
+  LessonReorderItem,
+  LessonUpdate,
+} from './types'
 
 export interface CourseFilters {
   published?: boolean
@@ -68,4 +76,36 @@ export function getLesson(
 /** Manual completion, allowed only for a lesson that has no quiz. */
 export function completeLesson(courseId: string, lessonId: string): Promise<LessonRead> {
   return api.post<LessonRead>(`/courses/${courseId}/lessons/${lessonId}/complete`)
+}
+
+export function createLesson(courseId: string, payload: LessonCreate): Promise<LessonRead> {
+  return api.post<LessonRead>(`/courses/${courseId}/lessons/`, payload)
+}
+
+export function updateLesson(
+  courseId: string,
+  lessonId: string,
+  payload: LessonUpdate,
+): Promise<LessonRead> {
+  return api.patch<LessonRead>(`/courses/${courseId}/lessons/${lessonId}`, payload)
+}
+
+/** Cascades to the lesson's materials, chunks, quiz and progress rows. */
+export function deleteLesson(courseId: string, lessonId: string): Promise<void> {
+  return api.delete(`/courses/${courseId}/lessons/${lessonId}`)
+}
+
+/**
+ * Bulk-sets `order`. Send every lesson of the course, not just the moved ones,
+ * so the resulting sequence has no gaps or ties.
+ *
+ * Note the backend does not recompute LessonProgress afterwards: a student
+ * mid-course can find a lesson that was `available` become logically locked
+ * after a reshuffle. Accepted for the MVP — reorder before publishing.
+ */
+export function reorderLessons(
+  courseId: string,
+  items: LessonReorderItem[],
+): Promise<LessonRead[]> {
+  return api.patch<LessonRead[]>(`/courses/${courseId}/lessons/reorder`, items)
 }
