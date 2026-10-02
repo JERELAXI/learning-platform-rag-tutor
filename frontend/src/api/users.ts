@@ -22,11 +22,12 @@ export function updateUserRole(userId: string, role: UserRole): Promise<UserRead
   return api.patch<UserRead>(`/users/${userId}/role`, { role })
 }
 
-/**
- * One-way: the API has no counterpart to switch `is_active` back on, so a
- * mistake here can only be undone in the database. Refuses to deactivate the
- * caller themselves (400).
- */
+/** Blocks sign-in. Refuses to deactivate the caller themselves (400). */
 export function deactivateUser(userId: string): Promise<UserRead> {
   return api.patch<UserRead>(`/users/${userId}/deactivate`)
+}
+
+/** Restores access after a deactivation. Idempotent. */
+export function activateUser(userId: string): Promise<UserRead> {
+  return api.patch<UserRead>(`/users/${userId}/activate`)
 }

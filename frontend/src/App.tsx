@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
 import { AuthProvider } from './auth/AuthProvider'
 import { RequireAuth, RequireRole } from './auth/guards'
@@ -8,6 +8,7 @@ import { AdminUsersPage } from './pages/AdminUsersPage'
 import { CatalogPage } from './pages/CatalogPage'
 import { CourseOverview } from './pages/CourseOverview'
 import { CoursePage } from './pages/CoursePage'
+import { HomeRedirect } from './pages/HomeRedirect'
 import { LessonPage } from './pages/LessonPage'
 import { LoginPage } from './pages/LoginPage'
 import { MyLearningPage } from './pages/MyLearningPage'
@@ -25,7 +26,7 @@ export default function App() {
 
           <Route element={<RequireAuth />}>
             <Route element={<Layout />}>
-              <Route index element={<Navigate to="/courses" replace />} />
+              <Route index element={<HomeRedirect />} />
 
               <Route path="courses" element={<CatalogPage />} />
               <Route path="courses/:courseId" element={<CoursePage />}>

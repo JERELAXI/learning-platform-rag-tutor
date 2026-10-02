@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { listCourses } from '../api/courses'
 import { enroll, listMyEnrollments } from '../api/enrollments'
 import type { CourseRead } from '../api/types'
+import { useAuth } from '../auth/useAuth'
 import {
   Button,
   Card,
@@ -16,8 +17,14 @@ import {
 import { errorMessage, useApi, useDebounced } from '../hooks/useApi'
 
 export function CatalogPage() {
+  const { user } = useAuth()
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebounced(search)
+
+  // Admins manage the platform rather than study on it: the backend never
+  // completes a lesson for an admin, so an enrollment of theirs would sit at
+  // 0% forever. Offering the button would be a trap.
+  const canEnroll = user !== null && user.role !== 'admin'
 
   // Only published courses are enrollable, so there is no reason to list drafts.
   const fetchCourses = useCallback(
@@ -34,6 +41,13 @@ export function CatalogPage() {
   const [enrollError, setEnrollError] = useState<string | null>(null)
 
   const enrolledCourseIds = new Set((enrollments.data ?? []).map((item) => item.course_id))
+
+  // Own courses are managed in "Викладання", not enrolled in: enrolling in
+  // your own course yields an enrollment the backend never advances, because
+  // the owner is privileged and gets no LessonProgress.
+  const allCourses = courses.data ?? []
+  const visibleCourses = allCourses.filter((course) => course.teacher_id !== user?.id)
+  const hiddenOwnCount = allCourses.length - visibleCourses.length
 
   async function handleEnroll(course: CourseRead): Promise<void> {
     setEnrollError(null)
@@ -54,7 +68,12 @@ export function CatalogPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Каталог курсів</h1>
           <p className="mt-1 text-sm text-ink-soft">
-            Опубліковані курси, доступні для запису.
+            {canEnroll
+              ? 'Опубліковані курси, доступні для запису.'
+              : 'Опубліковані курси платформи.'}
+            {hiddenOwnCount > 0
+              ? ` Твої курси (${String(hiddenOwnCount)}) — у розділі «Викладання».`
+              : ''}
           </p>
         </div>
         <div className="w-full sm:w-64">
@@ -77,13 +96,15 @@ export function CatalogPage() {
         <div className="grid place-items-center py-16 text-ink-muted">
           <Spinner className="size-7" />
         </div>
-      ) : (courses.data ?? []).length === 0 ? (
+      ) : visibleCourses.length === 0 ? (
         <EmptyState
           title={search.trim().length > 0 ? 'Нічого не знайдено' : 'Курсів поки немає'}
           note={
             search.trim().length > 0
               ? 'Спробуй інший запит або очисти пошук.'
-              : 'Коли викладач опублікує курс, він зʼявиться тут.'
+              : hiddenOwnCount > 0
+                ? 'Опубліковані зараз лише твої власні курси — вони в розділі «Викладання».'
+                : 'Коли викладач опублікує курс, він зʼявиться тут.'
           }
         />
       ) : (
@@ -92,7 +113,7 @@ export function CatalogPage() {
             courses.loading ? 'opacity-60' : ''
           }`}
         >
-          {(courses.data ?? []).map((course) => {
+          {visibleCourses.map((course) => {
             const alreadyEnrolled = enrolledCourseIds.has(course.id)
             return (
               <Card key={course.id} className="flex flex-col p-5">
@@ -102,12 +123,12 @@ export function CatalogPage() {
                 </p>
 
                 <div className="mt-4">
-                  {alreadyEnrolled ? (
+                  {alreadyEnrolled || !canEnroll ? (
                     <Link
                       to={`/courses/${course.id}`}
                       className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
                     >
-                      Перейти до курсу →
+                      {alreadyEnrolled ? 'Перейти до курсу' : 'Відкрити курс'} →
                     </Link>
                   ) : (
                     <Button

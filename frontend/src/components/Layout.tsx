@@ -2,22 +2,32 @@ import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 
 import { hasRole } from '../api/types'
-import type { UserRole } from '../api/types'
+import type { UserRead, UserRole } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { Button } from './ui'
 
 interface NavItem {
   to: string
   label: string
-  /** Minimum role; omitted means any signed-in user. */
-  minimum?: UserRole
+  /** Who sees this section. */
+  visibleTo: (user: UserRead) => boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/courses', label: 'Каталог' },
-  { to: '/my', label: 'Моє навчання' },
-  { to: '/teach', label: 'Викладання', minimum: 'teacher' },
-  { to: '/admin/users', label: 'Користувачі', minimum: 'admin' },
+  { to: '/courses', label: 'Каталог', visibleTo: () => true },
+  {
+    to: '/my',
+    label: 'Моє навчання',
+    // Admins never accrue lesson progress server-side, so this section would
+    // be permanently empty for them.
+    visibleTo: (user) => user.role !== 'admin',
+  },
+  { to: '/teach', label: 'Викладання', visibleTo: (user) => hasRole(user.role, 'teacher') },
+  {
+    to: '/admin/users',
+    label: 'Користувачі',
+    visibleTo: (user) => hasRole(user.role, 'admin'),
+  },
 ]
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -47,9 +57,7 @@ export function Layout() {
     }
   }
 
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => item.minimum === undefined || (user !== null && hasRole(user.role, item.minimum)),
-  )
+  const visibleItems = user === null ? [] : NAV_ITEMS.filter((item) => item.visibleTo(user))
 
   return (
     <div className="flex min-h-dvh flex-col bg-canvas font-sans text-ink">

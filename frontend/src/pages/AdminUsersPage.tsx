@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 
-import { deactivateUser, listUsers, updateUserRole } from '../api/users'
+import { activateUser, deactivateUser, listUsers, updateUserRole } from '../api/users'
 import type { UserRead, UserRole } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import {
@@ -62,15 +62,25 @@ function UserRow({
 
   async function handleDeactivate(): Promise<void> {
     if (
-      !window.confirm(
-        `Деактивувати ${user.email}? Користувач не зможе увійти, і повернути доступ через інтерфейс буде неможливо.`,
-      )
+      !window.confirm(`Деактивувати ${user.email}? Користувач не зможе увійти.`)
     ) {
       return
     }
     setBusy(true)
     try {
       await deactivateUser(user.id)
+      onChanged()
+    } catch (caught) {
+      onError(errorMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleActivate(): Promise<void> {
+    setBusy(true)
+    try {
+      await activateUser(user.id)
       onChanged()
     } catch (caught) {
       onError(errorMessage(caught))
@@ -122,14 +132,20 @@ function UserRow({
       </td>
 
       <td className="px-4 py-3 text-right">
-        <Button
-          variant="ghost"
-          loading={busy}
-          disabled={isSelf || !user.is_active}
-          onClick={() => void handleDeactivate()}
-        >
-          Деактивувати
-        </Button>
+        {user.is_active ? (
+          <Button
+            variant="ghost"
+            loading={busy}
+            disabled={isSelf}
+            onClick={() => void handleDeactivate()}
+          >
+            Деактивувати
+          </Button>
+        ) : (
+          <Button variant="secondary" loading={busy} onClick={() => void handleActivate()}>
+            Активувати
+          </Button>
+        )}
       </td>
     </tr>
   )
