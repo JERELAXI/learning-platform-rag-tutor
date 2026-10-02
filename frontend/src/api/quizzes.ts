@@ -1,5 +1,20 @@
 import { api } from './client'
-import type { QuizRead, ResultRead, SubmitRequest } from './types'
+import type {
+  QuizGenerate,
+  QuizRead,
+  QuizReadOwner,
+  ResultRead,
+  SubmitRequest,
+} from './types'
+
+/**
+ * Feeds every ready chunk of the lesson to the LLM and asks for N questions in
+ * strict JSON. Answers 400 when the lesson has no processed materials, and 400
+ * again when a quiz already exists — there is one canonical quiz per lesson.
+ */
+export function generateQuiz(payload: QuizGenerate): Promise<QuizReadOwner> {
+  return api.post<QuizReadOwner>('/quizzes/generate', payload)
+}
 
 /**
  * Returns a different shape per role: the course owner and admins get

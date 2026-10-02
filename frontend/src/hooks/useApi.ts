@@ -76,6 +76,22 @@ export function useApi<T>(fetcher: (signal: AbortSignal) => Promise<T>): AsyncSt
   return { ...state, reload }
 }
 
+/**
+ * Runs `tick` on an interval while `active` is true, and stops as soon as it
+ * turns false. Used to follow material processing: upload answers 202 and a
+ * Celery worker finishes the job, so the only way to learn the outcome is to
+ * keep asking.
+ */
+export function usePollingWhile(active: boolean, tick: () => void, intervalMs = 3000): void {
+  useEffect(() => {
+    if (!active) return
+    const timer = setInterval(tick, intervalMs)
+    return () => {
+      clearInterval(timer)
+    }
+  }, [active, tick, intervalMs])
+}
+
 /** Delays a fast-changing value — so typing in a search box does not fire a
  *  request per keystroke. */
 export function useDebounced<T>(value: T, delayMs = 300): T {

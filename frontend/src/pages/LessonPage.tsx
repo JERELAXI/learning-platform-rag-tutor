@@ -4,51 +4,21 @@ import { Link, useParams } from 'react-router-dom'
 import { completeLesson, getLesson } from '../api/courses'
 import { listMaterials } from '../api/materials'
 import { isMaterialInFlight } from '../api/types'
-import type { MaterialRead, MaterialStatus } from '../api/types'
+import { useAuth } from '../auth/useAuth'
 import { FileIcon } from '../components/icons'
+import { MaterialStatusBadge, MaterialsManager } from '../components/MaterialsManager'
+import { QuizGenerator } from '../components/QuizGenerator'
 import { TutorPanel } from '../components/TutorPanel'
-import {
-  Button,
-  Card,
-  ErrorBanner,
-  ErrorState,
-  Spinner,
-} from '../components/ui'
-import { errorMessage, useApi } from '../hooks/useApi'
+import { Button, Card, ErrorBanner, ErrorState, Spinner } from '../components/ui'
+import { errorMessage, useApi, usePollingWhile } from '../hooks/useApi'
 import { useCourseContext } from './courseContext'
-
-const MATERIAL_LABELS: Record<MaterialStatus, string> = {
-  pending: 'у черзі',
-  processing: 'обробляється',
-  ready: 'готово',
-  error: 'помилка',
-}
-
-const MATERIAL_TONES: Record<MaterialStatus, string> = {
-  pending: 'text-ink-muted',
-  processing: 'text-brand',
-  ready: 'text-done',
-  error: 'text-danger',
-}
-
-function MaterialRow({ material }: { material: MaterialRead }) {
-  return (
-    <li className="flex items-center gap-2.5 py-2">
-      <FileIcon className="size-4 shrink-0 text-ink-muted" />
-      <span className="min-w-0 flex-1 truncate text-sm">{material.filename}</span>
-      <span
-        className={`flex shrink-0 items-center gap-1.5 text-xs font-medium ${MATERIAL_TONES[material.status]}`}
-      >
-        {isMaterialInFlight(material.status) ? <Spinner className="size-3" /> : null}
-        {MATERIAL_LABELS[material.status]}
-      </span>
-    </li>
-  )
-}
 
 export function LessonPage() {
   const { courseId = '', lessonId = '' } = useParams()
-  const { reloadLessons } = useCourseContext()
+  const { course, reloadLessons } = useCourseContext()
+  const { user } = useAuth()
+
+  const isOwner = user !== null && (user.role === 'admin' || course.teacher_id === user.id)
 
   // Fetched on its own rather than taken from the sidebar list: this is the
   // endpoint that enforces the lock, so going through it means the UI cannot
@@ -64,6 +34,12 @@ export function LessonPage() {
     [lessonId],
   )
   const materials = useApi(fetchMaterials)
+
+  const materialList = materials.data ?? []
+  const anyInFlight = materialList.some((material) => isMaterialInFlight(material.status))
+  // Upload answers 202 and a Celery worker does the rest, so keep asking until
+  // every file has settled.
+  usePollingWhile(anyInFlight, materials.reload)
 
   const [completing, setCompleting] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -98,7 +74,7 @@ export function LessonPage() {
   const current = lesson.data
   const isStudent = current.status !== null
   const hasQuiz = current.quiz_id !== null
-  const materialList = materials.data ?? []
+  const hasReadyMaterials = materialList.some((material) => material.status === 'ready')
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
@@ -119,31 +95,58 @@ export function LessonPage() {
           </div>
         </Card>
 
-        <Card className="p-5">
-          <h2 className="text-sm font-semibold tracking-tight">Матеріали уроку</h2>
-          <p className="mt-1 text-xs text-ink-muted">
-            Саме з цих файлів AI-репетитор бере відповіді.
-          </p>
-
-          {materials.error !== null ? (
-            <p className="mt-3 text-sm text-danger">{materials.error}</p>
-          ) : materials.loading && materials.data === null ? (
-            <div className="py-4">
-              <Spinner className="size-4 text-ink-muted" />
-            </div>
-          ) : materialList.length === 0 ? (
-            <p className="mt-3 text-sm text-ink-muted">
-              Викладач ще не завантажив матеріали — репетитору поки нема на що
-              опиратися.
+        {isOwner ? (
+          <MaterialsManager
+            lessonId={lessonId}
+            materials={materialList}
+            loading={materials.loading}
+            onChanged={materials.reload}
+          />
+        ) : (
+          <Card className="p-5">
+            <h2 className="text-sm font-semibold tracking-tight">Матеріали уроку</h2>
+            <p className="mt-1 text-xs text-ink-muted">
+              Саме з цих файлів AI-репетитор бере відповіді.
             </p>
-          ) : (
-            <ul className="mt-2 divide-y divide-line">
-              {materialList.map((material) => (
-                <MaterialRow key={material.id} material={material} />
-              ))}
-            </ul>
-          )}
-        </Card>
+
+            {materials.error !== null ? (
+              <p className="mt-3 text-sm text-danger">{materials.error}</p>
+            ) : materials.loading && materials.data === null ? (
+              <div className="py-4">
+                <Spinner className="size-4 text-ink-muted" />
+              </div>
+            ) : materialList.length === 0 ? (
+              <p className="mt-3 text-sm text-ink-muted">
+                Викладач ще не завантажив матеріали — репетитору поки нема на що
+                опиратися.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-line">
+                {materialList.map((material) => (
+                  <li key={material.id} className="flex items-center gap-2.5 py-2">
+                    <FileIcon className="size-4 shrink-0 text-ink-muted" />
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {material.filename}
+                    </span>
+                    <MaterialStatusBadge status={material.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
+
+        {isOwner ? (
+          <QuizGenerator
+            lessonId={lessonId}
+            quizId={current.quiz_id}
+            hasReadyMaterials={hasReadyMaterials}
+            onGenerated={() => {
+              reloadLessons()
+              lesson.reload()
+            }}
+          />
+        ) : null}
 
         {isStudent ? (
           <Card className="p-5">
