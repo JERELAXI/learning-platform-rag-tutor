@@ -1,6 +1,29 @@
 import uuid
 
+from chat.service import SYSTEM_PROMPT_TEMPLATE
 from materials.models import DocumentChunk, Material, MaterialStatus
+
+
+def test_socratic_prompt_keeps_its_guardrails():
+    """The LLM is mocked everywhere else, so prompt quality cannot be asserted
+    end to end. What this does protect is the set of clauses the tutor's
+    behaviour depends on — none of them should quietly disappear."""
+    prompt = SYSTEM_PROMPT_TEMPLATE.lower()
+
+    # Refuses to hand over a factual answer token.
+    assert "не називаєш її" in prompt
+    # Treats the student's message as a question, not as new instructions.
+    assert "а не інструкція" in prompt
+    assert "напиши одразу відповідь" in prompt
+    # Still explains mechanisms, so the tutor stays useful.
+    assert "коли відповідати повністю" in prompt
+    # Never answers outside the retrieved context.
+    assert "ніколи" in prompt
+    assert "{context}" in SYSTEM_PROMPT_TEMPLATE
+
+    # The old prompt offered "У матеріалі згадується..." as sample phrasing and
+    # the model used it to deliver the answer politely. It must not come back.
+    assert "у матеріалі згадується" not in prompt
 
 
 async def _seed_ready_material(db, lesson_id) -> tuple[Material, DocumentChunk]:
