@@ -36,3 +36,12 @@ async def deactivate_user(db: AsyncSession, user: User) -> User:
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def activate_user(db: AsyncSession, user: User) -> User:
+    """Counterpart to deactivate_user, so a mistaken lockout is recoverable
+    without going into the database by hand. Idempotent."""
+    user.is_active = True
+    await db.commit()
+    await db.refresh(user)
+    return user

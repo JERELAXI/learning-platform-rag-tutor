@@ -9,7 +9,13 @@ from auth.models import User, UserRole
 from auth.schemas import UserRead
 from core.db import get_db
 from users.schemas import RoleUpdate
-from users.service import deactivate_user, get_user_or_404, list_users, update_user_role
+from users.service import (
+    activate_user,
+    deactivate_user,
+    get_user_or_404,
+    list_users,
+    update_user_role,
+)
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -57,3 +63,15 @@ async def deactivate_user_endpoint(
         )
     user = await get_user_or_404(db, user_id)
     return await deactivate_user(db, user)
+
+
+@router.patch("/{user_id}/activate", response_model=UserRead)
+async def activate_user_endpoint(
+    user_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[User, Depends(require_role(UserRole.admin))],
+) -> object:
+    """Restores access after a deactivation. Without this, a wrong click left
+    the account unreachable through the API entirely."""
+    user = await get_user_or_404(db, user_id)
+    return await activate_user(db, user)
