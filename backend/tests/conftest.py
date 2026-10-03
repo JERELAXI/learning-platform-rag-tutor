@@ -133,9 +133,7 @@ async def _fake_embed(txt: str) -> list[float]:
     return _fake_embed_impl(txt)
 
 
-async def _fake_generate(
-    prompt: str, system: str | None = None, history=None
-) -> str:
+def _fake_answer(prompt: str) -> str:
     if "multiple-choice" in prompt.lower():
         m = re.search(r"згенеруй\s+(\d+)\s+multiple", prompt.lower())
         n = int(m.group(1)) if m else 5
@@ -152,6 +150,23 @@ async def _fake_generate(
     return "AI: Подумай про це."
 
 
+async def _fake_generate(
+    prompt: str, system: str | None = None, history=None
+) -> str:
+    return _fake_answer(prompt)
+
+
+def _fake_generate_stream(prompt: str, system: str | None = None, history=None):
+    """Async generator, deliberately not an AsyncMock: the production function
+    is an async generator and the call sites iterate it directly."""
+
+    async def pieces():
+        for word in _fake_answer(prompt).split(" "):
+            yield word + " "
+
+    return pieces()
+
+
 @pytest.fixture(autouse=True)
 def llm_mocks(monkeypatch) -> SimpleNamespace:
     embed = AsyncMock(side_effect=_fake_embed)
@@ -160,6 +175,7 @@ def llm_mocks(monkeypatch) -> SimpleNamespace:
         monkeypatch.setattr(target, embed)
     for target in ("chat.service.generate", "quizzes.service.generate"):
         monkeypatch.setattr(target, generate)
+    monkeypatch.setattr("chat.service.generate_stream", _fake_generate_stream)
     return SimpleNamespace(embed=embed, generate=generate)
 
 

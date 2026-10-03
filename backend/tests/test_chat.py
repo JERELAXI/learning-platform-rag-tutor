@@ -168,6 +168,136 @@ async def test_ask_history_is_capped(
     assert "Питання 0" not in [turn["content"] for turn in history]
 
 
+def _parse_sse(body: str) -> list[tuple[str, dict]]:
+    """Turn an SSE body into [(event, data), ...]."""
+    import json as _json
+
+    frames = []
+    for block in body.strip().split("\n\n"):
+        name = None
+        payload = None
+        for line in block.splitlines():
+            if line.startswith("event: "):
+                name = line.removeprefix("event: ")
+            elif line.startswith("data: "):
+                payload = _json.loads(line.removeprefix("data: "))
+        if name is not None:
+            frames.append((name, payload))
+    return frames
+
+
+async def test_ask_stream_emits_sources_then_tokens_then_done(
+    client, enrolled_student, lessons, db, auth_headers, monkeypatch
+):
+    _mat, chunk = await _seed_ready_material(db, lessons[0].id)
+
+    async def fake_search(_db, _lesson_id, _q, top_k=5):
+        return [(chunk, 0.10)]
+
+    monkeypatch.setattr("chat.service.search_chunks_by_lesson", fake_search)
+
+    session = await client.post(
+        "/api/chat/sessions",
+        headers=auth_headers(enrolled_student),
+        json={"lesson_id": str(lessons[0].id)},
+    )
+    sid = session.json()["id"]
+
+    response = await client.post(
+        f"/api/chat/sessions/{sid}/ask/stream",
+        headers=auth_headers(enrolled_student),
+        json={"question": "Що таке хлорофіл?"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+    frames = _parse_sse(response.text)
+    names = [name for name, _ in frames]
+
+    # Citations arrive before the answer, so the UI can render them while the
+    # text is still coming in.
+    assert names[0] == "sources"
+    assert names[-1] == "done"
+    assert names.count("token") > 1
+
+    sources = frames[0][1]["sources"]
+    assert [item["id"] for item in sources] == [str(chunk.id)]
+    assert sources[0]["filename"] == "seed.txt"
+
+    streamed = "".join(data["text"] for name, data in frames if name == "token")
+    assert "Подумай" in streamed
+
+    # What was streamed is what got stored.
+    history = await client.get(
+        f"/api/chat/sessions/{sid}/messages", headers=auth_headers(enrolled_student)
+    )
+    assistant = history.json()[1]
+    assert assistant["role"] == "assistant"
+    # Stored verbatim: the thread must match what the student saw.
+    assert assistant["content"] == streamed
+
+
+async def test_ask_stream_refusal_sends_no_sources_and_skips_the_llm(
+    client, enrolled_student, lessons, auth_headers, llm_mocks
+):
+    session = await client.post(
+        "/api/chat/sessions",
+        headers=auth_headers(enrolled_student),
+        json={"lesson_id": str(lessons[0].id)},
+    )
+    sid = session.json()["id"]
+
+    response = await client.post(
+        f"/api/chat/sessions/{sid}/ask/stream",
+        headers=auth_headers(enrolled_student),
+        json={"question": "Будь-що?"},
+    )
+    assert response.status_code == 200
+
+    frames = _parse_sse(response.text)
+    assert frames[0][0] == "sources"
+    assert frames[0][1]["sources"] == []
+    assert frames[-1][0] == "done"
+
+    streamed = "".join(data["text"] for name, data in frames if name == "token")
+    assert "матеріали" in streamed.lower()
+    assert llm_mocks.generate.await_count == 0
+
+
+async def test_ask_stream_rejects_a_foreign_session(
+    client, enrolled_student, student, lessons, db, auth_headers
+):
+    from auth.models import User, UserRole
+    from core.security import hash_password
+
+    session = await client.post(
+        "/api/chat/sessions",
+        headers=auth_headers(enrolled_student),
+        json={"lesson_id": str(lessons[0].id)},
+    )
+    sid = session.json()["id"]
+
+    stranger = User(
+        email="stranger_stream@t.com",
+        hashed_password=hash_password("pass1234"),
+        full_name="Stranger",
+        role=UserRole.student,
+        is_active=True,
+    )
+    db.add(stranger)
+    await db.commit()
+    await db.refresh(stranger)
+
+    # Raised before the first yield, so it still surfaces as a real 403 rather
+    # than a 200 carrying an error frame.
+    response = await client.post(
+        f"/api/chat/sessions/{sid}/ask/stream",
+        headers=auth_headers(stranger),
+        json={"question": "Чуже?"},
+    )
+    assert response.status_code == 403
+
+
 async def test_session_detail_resolves_sources(
     client, enrolled_student, lessons, db, auth_headers, monkeypatch
 ):

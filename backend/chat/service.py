@@ -1,6 +1,8 @@
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
+from typing import Any, Literal, TypedDict
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -19,7 +21,7 @@ from chat.schemas import (
 from courses.service import get_course_or_404, get_lesson_or_404_by_id
 from enrollments.service import is_lesson_accessible, is_student_enrolled
 from core.config import settings
-from core.llm import ChatTurn, embed_text, generate
+from core.llm import ChatTurn, embed_text, generate, generate_stream
 from materials.service import get_chunks_by_ids, search_chunks_by_lesson
 
 logger = logging.getLogger(__name__)
@@ -291,32 +293,25 @@ async def _save_and_return(
     return AskResponse(answer=answer, sources=sources)
 
 
-async def ask(
-    db: AsyncSession, session_id: uuid.UUID, question: str, user: User
-) -> AskResponse:
-    session = await _get_session_or_404(db, session_id)
-    _ensure_owner(session, user)
+@dataclass(slots=True)
+class _Retrieval:
+    """Outcome of preparing an answer. `refusal` is set when the tutor must
+    decline without calling the LLM at all — no materials, or nothing cleared
+    the relevance threshold."""
 
-    # Read the thread before storing the new question, so it is not replayed
-    # as both history and prompt.
-    history = await _load_history(db, session.id)
+    system_prompt: str | None
+    sources: list[SourceRead]
+    refusal: str | None
 
-    user_msg = ChatMessage(
-        session_id=session.id,
-        role=MessageRole.user,
-        content=question,
-        sources=[],
-    )
-    db.add(user_msg)
-    await db.commit()
 
+async def _retrieve(
+    db: AsyncSession, session: ChatSession, question: str
+) -> _Retrieval:
     query_vec = await embed_text(question)
-    scored = await search_chunks_by_lesson(
-        db, session.lesson_id, query_vec, top_k=TOP_K
-    )
+    scored = await search_chunks_by_lesson(db, session.lesson_id, query_vec, top_k=TOP_K)
 
     if not scored:
-        return await _save_and_return(db, session.id, NO_MATERIALS_ANSWER, [])
+        return _Retrieval(None, [], NO_MATERIALS_ANSWER)
 
     threshold = settings.RAG_DISTANCE_THRESHOLD
     relevant = [(c, d) for c, d in scored if d <= threshold]
@@ -327,17 +322,120 @@ async def ask(
             scored[0][1],
             threshold,
         )
-        return await _save_and_return(db, session.id, OFF_TOPIC_ANSWER, [])
+        return _Retrieval(None, [], OFF_TOPIC_ANSWER)
 
     chunks = [c for c, _ in relevant]
-    context = "\n\n".join(
-        f"[{i + 1}] {chunk.content}" for i, chunk in enumerate(chunks)
-    )
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(context=context)
+    context = "\n\n".join(f"[{i + 1}] {chunk.content}" for i, chunk in enumerate(chunks))
 
     # Same code path as message history, so a live answer and its replay from
     # the DB always carry identically-shaped sources. It also fetches the
     # material filename, which retrieval doesn't select.
     sources = await _build_sources(db, [str(chunk.id) for chunk in chunks])
-    answer = await generate(prompt=question, system=system_prompt, history=history)
-    return await _save_and_return(db, session.id, answer, sources)
+    return _Retrieval(SYSTEM_PROMPT_TEMPLATE.format(context=context), sources, None)
+
+
+@dataclass(slots=True)
+class Turn:
+    """Everything decided before a single answer is produced."""
+
+    session_id: uuid.UUID
+    question: str
+    history: list[ChatTurn]
+    retrieval: _Retrieval
+
+
+async def start_turn(
+    db: AsyncSession, session_id: uuid.UUID, question: str, user: User
+) -> Turn:
+    """Authorize, capture the thread, store the question, run retrieval.
+
+    Everything that can fail with an HTTP status lives here, so a streaming
+    route can await this *before* it starts the response. A StreamingResponse
+    begins the moment it is returned, and an HTTPException raised afterwards
+    cannot be turned into a 4xx any more — Starlette fails with "response
+    already started".
+
+    History is read before the question is stored so it is not replayed as
+    both history and prompt.
+    """
+    session = await _get_session_or_404(db, session_id)
+    _ensure_owner(session, user)
+
+    history = await _load_history(db, session.id)
+
+    db.add(
+        ChatMessage(
+            session_id=session.id,
+            role=MessageRole.user,
+            content=question,
+            sources=[],
+        )
+    )
+    await db.commit()
+
+    retrieval = await _retrieve(db, session, question)
+    return Turn(session.id, question, history, retrieval)
+
+
+async def ask(
+    db: AsyncSession, session_id: uuid.UUID, question: str, user: User
+) -> AskResponse:
+    turn = await start_turn(db, session_id, question, user)
+
+    if turn.retrieval.refusal is not None:
+        return await _save_and_return(db, turn.session_id, turn.retrieval.refusal, [])
+
+    answer = await generate(
+        prompt=turn.question, system=turn.retrieval.system_prompt, history=turn.history
+    )
+    return await _save_and_return(db, turn.session_id, answer, turn.retrieval.sources)
+
+
+class StreamEvent(TypedDict):
+    """One server-sent event. The route turns these into SSE frames."""
+
+    event: Literal["sources", "token", "done", "error"]
+    data: dict[str, Any]
+
+
+async def stream_answer(db: AsyncSession, turn: Turn) -> AsyncIterator[StreamEvent]:
+    """Streaming twin of `ask`, for a turn already prepared by `start_turn`.
+
+    Emits `sources` first so the UI can render citations while the answer is
+    still arriving, then one `token` per piece, then `done`. The assistant
+    message is stored once the stream finishes — including a partial answer
+    after a mid-stream failure, so the saved thread matches what the student
+    actually saw.
+    """
+    retrieval = turn.retrieval
+
+    yield StreamEvent(
+        event="sources",
+        data={"sources": [source.model_dump(mode="json") for source in retrieval.sources]},
+    )
+
+    if retrieval.refusal is not None:
+        yield StreamEvent(event="token", data={"text": retrieval.refusal})
+        await _save_and_return(db, turn.session_id, retrieval.refusal, [])
+        yield StreamEvent(event="done", data={})
+        return
+
+    pieces: list[str] = []
+    try:
+        async for piece in generate_stream(
+            prompt=turn.question, system=retrieval.system_prompt, history=turn.history
+        ):
+            pieces.append(piece)
+            yield StreamEvent(event="token", data={"text": piece})
+    except Exception as exc:
+        logger.exception("stream_answer failed for session %s: %s", turn.session_id, exc)
+        if pieces:
+            await _save_and_return(db, turn.session_id, "".join(pieces), retrieval.sources)
+        yield StreamEvent(
+            event="error",
+            data={"detail": "Відповідь обірвалася. Спробуй запитати ще раз."},
+        )
+        return
+
+    await _save_and_return(db, turn.session_id, "".join(pieces), retrieval.sources)
+    yield StreamEvent(event="done", data={})
