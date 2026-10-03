@@ -32,6 +32,35 @@ async def test_get_locked_lesson_403(
     assert r.status_code == 403
 
 
+async def test_lesson_list_withholds_locked_content(
+    client, enrolled_student, lessons, published_course, teacher, db, auth_headers
+):
+    """Status alone is not protection — the list must not ship locked bodies."""
+    for lesson in lessons:
+        lesson.content = f"secret body of {lesson.title}"
+    await db.commit()
+
+    lst = await client.get(
+        f"/api/courses/{published_course.id}/lessons/",
+        headers=auth_headers(enrolled_student),
+    )
+    assert lst.status_code == 200
+    by_title = {item["title"]: item for item in lst.json()}
+
+    assert by_title["L1"]["status"] == "available"
+    assert by_title["L1"]["content"] == "secret body of L1"
+    for title in ("L2", "L3"):
+        assert by_title[title]["status"] == "locked"
+        assert by_title[title]["content"] is None
+
+    # The owner sees every body — they wrote them.
+    owner_view = await client.get(
+        f"/api/courses/{published_course.id}/lessons/",
+        headers=auth_headers(teacher),
+    )
+    assert all(item["content"] is not None for item in owner_view.json())
+
+
 async def test_chat_session_on_locked_403(
     client, enrolled_student, lessons, auth_headers
 ):

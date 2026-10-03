@@ -11,6 +11,7 @@ async def test_enroll_201_and_lesson_statuses(
     )
     assert r.status_code == 201
     assert r.json()["progress"] == 0.0
+    assert r.json()["course_title"] == published_course.title
 
     lst = await client.get(
         f"/api/courses/{published_course.id}/lessons/",
@@ -19,6 +20,19 @@ async def test_enroll_201_and_lesson_statuses(
     assert lst.status_code == 200
     statuses = {l["title"]: l["status"] for l in lst.json()}
     assert statuses == {"L1": "available", "L2": "locked", "L3": "locked"}
+
+
+async def test_my_enrollments_carry_course_title(
+    client, published_course, lessons, student, auth_headers
+):
+    await client.post(
+        "/api/enrollments/",
+        headers=auth_headers(student),
+        json={"course_id": str(published_course.id)},
+    )
+    my = await client.get("/api/enrollments/my", headers=auth_headers(student))
+    assert my.status_code == 200
+    assert [e["course_title"] for e in my.json()] == [published_course.title]
 
 
 async def test_enroll_duplicate_400(

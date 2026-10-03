@@ -67,7 +67,7 @@ async def login_json(
     payload: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
-    """JSON alternative to /login for non-OAuth2 clients."""
+    """JSON alternative to /login for non-OAuth2 clients (the web frontend)."""
     user = await authenticate_user(db, payload.email, payload.password)
     return _issue_tokens(user)
 

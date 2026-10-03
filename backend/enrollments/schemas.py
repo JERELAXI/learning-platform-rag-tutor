@@ -16,3 +16,5 @@ class EnrollmentRead(BaseModel):
     course_id: uuid.UUID
     progress: float
     enrolled_at: datetime
+    # Attached by the route layer so "my courses" needs one request, not N+1.
+    course_title: str | None = None

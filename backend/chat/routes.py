@@ -1,7 +1,10 @@
+import json
 import uuid
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_user
@@ -21,6 +24,8 @@ from chat.service import (
     get_session_with_messages,
     list_my_sessions,
     list_session_messages,
+    start_turn,
+    stream_answer,
 )
 from core.db import get_db
 
@@ -53,7 +58,7 @@ async def get_session(
     session_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-) -> object:
+) -> SessionDetail:
     return await get_session_with_messages(db, session_id, current_user)
 
 
@@ -67,6 +72,37 @@ async def ask_question(
     return await ask(db, session_id, payload.question, current_user)
 
 
+@router.post("/sessions/{session_id}/ask/stream")
+async def ask_question_stream(
+    session_id: uuid.UUID,
+    payload: AskRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> StreamingResponse:
+    """Server-sent events: `sources` once, then a `token` per piece, then
+    `done` (or `error`). `/ask` remains as the non-streaming equivalent.
+
+    `start_turn` is awaited here, before the StreamingResponse exists, because
+    a streamed response begins the moment it is returned — an HTTPException
+    raised after that point cannot become a 4xx any more.
+    """
+    turn = await start_turn(db, session_id, payload.question, current_user)
+
+    async def frames() -> AsyncIterator[str]:
+        async for event in stream_answer(db, turn):
+            yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        frames(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Stops nginx and friends from buffering the stream into one blob.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get(
     "/sessions/{session_id}/messages", response_model=list[MessageRead]
 )
@@ -74,7 +110,7 @@ async def get_messages(
     session_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-) -> list:
+) -> list[MessageRead]:
     return await list_session_messages(db, session_id, current_user)
 
 

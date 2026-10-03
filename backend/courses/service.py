@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -22,6 +23,17 @@ def ensure_owner_or_admin(course: Course, user: User) -> None:
         return
     if course.teacher_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not the course owner")
+
+
+async def get_courses_by_ids(
+    db: AsyncSession, course_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, Course]:
+    """{course_id: Course} — one query, so callers in other domains can attach
+    course fields (e.g. title) to their own rows without an N+1."""
+    if not course_ids:
+        return {}
+    result = await db.execute(select(Course).where(Course.id.in_(course_ids)))
+    return {course.id: course for course in result.scalars().all()}
 
 
 # --- Course CRUD ---
