@@ -95,6 +95,79 @@ async def test_ask_with_context_saves_answer_and_sources(
     assert llm_mocks.generate.await_count == 1
 
 
+async def test_ask_replays_the_thread_so_the_tutor_can_follow_up(
+    client, enrolled_student, lessons, db, auth_headers, llm_mocks, monkeypatch
+):
+    """The Socratic method is a dialogue: without history the tutor cannot tell
+    that the student is answering the question it just asked."""
+    _mat, chunk = await _seed_ready_material(db, lessons[0].id)
+
+    async def fake_search(_db, _lesson_id, _q, top_k=5):
+        return [(chunk, 0.10)]
+
+    monkeypatch.setattr("chat.service.search_chunks_by_lesson", fake_search)
+
+    session = await client.post(
+        "/api/chat/sessions",
+        headers=auth_headers(enrolled_student),
+        json={"lesson_id": str(lessons[0].id)},
+    )
+    sid = session.json()["id"]
+    headers = auth_headers(enrolled_student)
+
+    first = await client.post(
+        f"/api/chat/sessions/{sid}/ask", headers=headers, json={"question": "Що таке хлорофіл?"}
+    )
+    assert first.status_code == 200
+    # Nothing came before, so the first call carries no history.
+    assert llm_mocks.generate.await_args.kwargs["history"] == []
+
+    second = await client.post(
+        f"/api/chat/sessions/{sid}/ask", headers=headers, json={"question": "Це пігмент?"}
+    )
+    assert second.status_code == 200
+
+    history = llm_mocks.generate.await_args.kwargs["history"]
+    # Oldest first, and the new question is the prompt — not part of history.
+    assert [turn["role"] for turn in history] == ["user", "assistant"]
+    assert history[0]["content"] == "Що таке хлорофіл?"
+    assert "Це пігмент?" not in [turn["content"] for turn in history]
+
+
+async def test_ask_history_is_capped(
+    client, enrolled_student, lessons, db, auth_headers, llm_mocks, monkeypatch
+):
+    """An unbounded thread would grow the prompt (which already holds the lesson
+    chunks) without limit."""
+    from chat.service import HISTORY_LIMIT
+
+    _mat, chunk = await _seed_ready_material(db, lessons[0].id)
+
+    async def fake_search(_db, _lesson_id, _q, top_k=5):
+        return [(chunk, 0.10)]
+
+    monkeypatch.setattr("chat.service.search_chunks_by_lesson", fake_search)
+
+    session = await client.post(
+        "/api/chat/sessions",
+        headers=auth_headers(enrolled_student),
+        json={"lesson_id": str(lessons[0].id)},
+    )
+    sid = session.json()["id"]
+    headers = auth_headers(enrolled_student)
+
+    # Each ask stores a user message and an assistant message.
+    for i in range(HISTORY_LIMIT):
+        await client.post(
+            f"/api/chat/sessions/{sid}/ask", headers=headers, json={"question": f"Питання {i}"}
+        )
+
+    history = llm_mocks.generate.await_args.kwargs["history"]
+    assert len(history) == HISTORY_LIMIT
+    # The window keeps the newest turns, so the oldest question has dropped out.
+    assert "Питання 0" not in [turn["content"] for turn in history]
+
+
 async def test_session_detail_resolves_sources(
     client, enrolled_student, lessons, db, auth_headers, monkeypatch
 ):

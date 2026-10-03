@@ -133,7 +133,9 @@ async def _fake_embed(txt: str) -> list[float]:
     return _fake_embed_impl(txt)
 
 
-async def _fake_generate(prompt: str, system: str | None = None) -> str:
+async def _fake_generate(
+    prompt: str, system: str | None = None, history=None
+) -> str:
     if "multiple-choice" in prompt.lower():
         m = re.search(r"згенеруй\s+(\d+)\s+multiple", prompt.lower())
         n = int(m.group(1)) if m else 5

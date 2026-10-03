@@ -19,7 +19,7 @@ from chat.schemas import (
 from courses.service import get_course_or_404, get_lesson_or_404_by_id
 from enrollments.service import is_lesson_accessible, is_student_enrolled
 from core.config import settings
-from core.llm import embed_text, generate
+from core.llm import ChatTurn, embed_text, generate
 from materials.service import get_chunks_by_ids, search_chunks_by_lesson
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,13 @@ TOP_K = 5
 
 # Chunks run ~800 chars; a citation only needs enough to recognise the passage.
 SNIPPET_MAX_CHARS = 300
+
+# How many earlier messages of the session go back to the model. The Socratic
+# method is a dialogue — without this the tutor cannot tell that the student is
+# answering the question it just asked. Four exchanges is enough to carry a
+# thread while keeping the prompt (which already holds the lesson chunks)
+# bounded.
+HISTORY_LIMIT = 8
 
 SYSTEM_PROMPT_TEMPLATE = """Ти — AI-репетитор. Твоє завдання — довести студента
 до розуміння, а не видати йому відповідь.
@@ -48,9 +55,17 @@ SYSTEM_PROMPT_TEMPLATE = """Ти — AI-репетитор. Твоє завда�
 ЩО РОБИТИ НАТОМІСТЬ
 - вкажи, у якій частині матеріалу шукати, не цитуючи саму відповідь;
 - поясни поняття, що оточують відповідь;
-- постав ОДНЕ конкретне навідне питання, на яке студент може відповісти сам;
-- якщо студент відповів неправильно — скажи, що саме не збігається з
-  матеріалом, і дай наступне питання.
+- постав ОДНЕ конкретне навідне питання, на яке студент може відповісти сам.
+
+ТИ БАЧИШ ПОПЕРЕДНІ РЕПЛІКИ ЦІЄЇ РОЗМОВИ
+Це діалог, не набір окремих запитів. Якщо студент відповідає на твоє
+попереднє питання — спершу оціни його відповідь за матеріалом:
+- відповів правильно — підтверди це конкретно, не просто «так», і зроби
+  наступний крок, а не повторюй те саме питання;
+- відповів неправильно або частково — скажи, що саме не збігається з
+  матеріалом, і дай вужче питання;
+- не знає і просить підказку — дай підказку, а не відповідь.
+Не став питання, на яке він уже відповів.
 
 Приклади твоїх формулювань: «Подумай, яку роль тут відіграє...»,
 «Поглянь на частину про...», «Що станеться, якщо...», «Яка різниця між X та Y?»
@@ -134,6 +149,26 @@ async def _build_sources(
         for chunk, filename in await get_chunks_by_ids(db, parsed)
     }
     return [by_id[chunk_id] for chunk_id in parsed if chunk_id in by_id]
+
+
+async def _load_history(db: AsyncSession, session_id: uuid.UUID) -> list[ChatTurn]:
+    """The last HISTORY_LIMIT messages of the session, oldest first.
+
+    Must be called before the new question is stored, otherwise the question
+    would appear twice — once as history, once as the prompt.
+    """
+    result = await db.execute(
+        select(ChatMessage.role, ChatMessage.content)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(HISTORY_LIMIT)
+    )
+    rows = list(result.all())
+    rows.reverse()
+    return [
+        ChatTurn(role="assistant" if role == MessageRole.assistant else "user", content=content)
+        for role, content in rows
+    ]
 
 
 async def _messages_to_reads(
@@ -262,6 +297,10 @@ async def ask(
     session = await _get_session_or_404(db, session_id)
     _ensure_owner(session, user)
 
+    # Read the thread before storing the new question, so it is not replayed
+    # as both history and prompt.
+    history = await _load_history(db, session.id)
+
     user_msg = ChatMessage(
         session_id=session.id,
         role=MessageRole.user,
@@ -300,5 +339,5 @@ async def ask(
     # the DB always carry identically-shaped sources. It also fetches the
     # material filename, which retrieval doesn't select.
     sources = await _build_sources(db, [str(chunk.id) for chunk in chunks])
-    answer = await generate(prompt=question, system=system_prompt)
+    answer = await generate(prompt=question, system=system_prompt, history=history)
     return await _save_and_return(db, session.id, answer, sources)
