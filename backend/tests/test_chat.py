@@ -17,8 +17,12 @@ def test_socratic_prompt_keeps_its_guardrails():
     assert "напиши одразу відповідь" in prompt
     # Still explains mechanisms, so the tutor stays useful.
     assert "коли відповідати повністю" in prompt
-    # Never answers outside the retrieved context.
+    # Never answers outside the retrieved context — and the check for that
+    # comes first, as a gate, because a threshold alone let an off-topic
+    # question through once (one chunk scored just under the cutoff).
+    assert "крок 0" in prompt
     assert "ніколи" in prompt
+    assert "немає інформації з цього питання" in prompt
     assert "{context}" in SYSTEM_PROMPT_TEMPLATE
 
     # The old prompt offered "У матеріалі згадується..." as sample phrasing and
