@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ask, createSession, getSession, listSessions } from '../api/chat'
+import { askStream, createSession, getSession, listSessions } from '../api/chat'
 import type { MessageRole, SessionDetail, SourceRead } from '../api/types'
 import { errorMessage, useApi } from '../hooks/useApi'
 import { FileIcon, SparkIcon } from './icons'
@@ -37,7 +37,7 @@ function Citations({ sources }: { sources: SourceRead[] }) {
   )
 }
 
-function MessageBubble({ bubble }: { bubble: Bubble }) {
+function MessageBubble({ bubble, streaming = false }: { bubble: Bubble; streaming?: boolean }) {
   if (bubble.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -52,6 +52,12 @@ function MessageBubble({ bubble }: { bubble: Bubble }) {
     <div>
       <div className="rounded-xl rounded-bl-sm bg-canvas px-3 py-2 text-sm leading-relaxed whitespace-pre-line text-ink">
         {bubble.content}
+        {streaming ? (
+          <span
+            aria-hidden="true"
+            className="ml-0.5 inline-block h-4 w-[2px] animate-pulse align-text-bottom bg-brand"
+          />
+        ) : null}
       </div>
       <Citations sources={bubble.sources} />
     </div>
@@ -90,10 +96,16 @@ export function TutorPanel({ lessonId }: { lessonId: string }) {
   }))
   const bubbles = [...historyBubbles, ...localBubbles]
 
+  // Streaming grows the last bubble without changing the count, so the scroll
+  // has to follow the text, not just new messages.
+  const streamedChars = bubbles.reduce((total, bubble) => total + bubble.content.length, 0)
+  const lastBubble = bubbles.at(-1)
+  const streamingNow = asking && lastBubble?.role === 'assistant'
+
   const bottomRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [bubbles.length, asking])
+  }, [bubbles.length, streamedChars, asking])
 
   async function handleAsk(): Promise<void> {
     const text = question.trim()
@@ -102,11 +114,21 @@ export function TutorPanel({ lessonId }: { lessonId: string }) {
     setError(null)
     setAsking(true)
     setQuestion('')
+
     const stamp = Date.now()
+    const answerKey = `a-${String(stamp)}`
+
     setLocalBubbles((previous) => [
       ...previous,
       { key: `q-${String(stamp)}`, role: 'user', content: text, sources: [] },
     ])
+
+    /** Rewrites the answer bubble in place as the stream arrives. */
+    const patchAnswer = (change: (bubble: Bubble) => Bubble): void => {
+      setLocalBubbles((previous) =>
+        previous.map((bubble) => (bubble.key === answerKey ? change(bubble) : bubble)),
+      )
+    }
 
     try {
       let activeId = createdId ?? existingId
@@ -116,19 +138,30 @@ export function TutorPanel({ lessonId }: { lessonId: string }) {
         setCreatedId(created.id)
       }
 
-      const response = await ask(activeId, { question: text })
+      // Added empty and filled as tokens land, so the answer visibly types out.
       setLocalBubbles((previous) => [
         ...previous,
-        {
-          key: `a-${String(stamp)}`,
-          role: 'assistant',
-          content: response.answer,
-          sources: response.sources,
-        },
+        { key: answerKey, role: 'assistant', content: '', sources: [] },
       ])
+
+      await askStream(activeId, text, {
+        onSources: (sources) => {
+          patchAnswer((bubble) => ({ ...bubble, sources }))
+        },
+        onToken: (piece) => {
+          patchAnswer((bubble) => ({ ...bubble, content: bubble.content + piece }))
+        },
+        onError: (detail) => {
+          // Partial text stays on screen — it is what the server stored too.
+          setError(detail)
+        },
+      })
     } catch (caught) {
       // The question stays on screen, so it is clear what failed.
       setError(errorMessage(caught))
+      setLocalBubbles((previous) =>
+        previous.filter((bubble) => !(bubble.key === answerKey && bubble.content === '')),
+      )
     } finally {
       setAsking(false)
     }
@@ -157,10 +190,18 @@ export function TutorPanel({ lessonId }: { lessonId: string }) {
             </p>
           </div>
         ) : (
-          bubbles.map((bubble) => <MessageBubble key={bubble.key} bubble={bubble} />)
+          bubbles.map((bubble) => (
+            <MessageBubble
+              key={bubble.key}
+              bubble={bubble}
+              streaming={streamingNow && bubble.key === lastBubble?.key}
+            />
+          ))
         )}
 
-        {asking ? (
+        {/* Only until the first token lands — after that the text itself is
+            the progress indicator. */}
+        {asking && !streamingNow ? (
           <div className="flex items-center gap-2 text-xs text-ink-muted">
             <Spinner className="size-3.5" />
             Шукаю в матеріалах уроку…

@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, openStream } from './client'
 import type {
   AskRequest,
   AskResponse,
@@ -6,6 +6,7 @@ import type {
   SessionCreate,
   SessionDetail,
   SessionRead,
+  SourceRead,
 } from './types'
 
 /**
@@ -41,4 +42,74 @@ export function ask(sessionId: string, payload: AskRequest): Promise<AskResponse
 
 export function deleteSession(sessionId: string): Promise<void> {
   return api.delete(`/chat/sessions/${sessionId}`)
+}
+
+export interface AskStreamHandlers {
+  /** Citations arrive before the answer, so they can render while it loads. */
+  onSources: (sources: SourceRead[]) => void
+  onToken: (text: string) => void
+  /** The stream broke part-way; whatever arrived before is still valid. */
+  onError: (detail: string) => void
+}
+
+interface SourcesFrame {
+  sources: SourceRead[]
+}
+
+interface TokenFrame {
+  text: string
+}
+
+interface ErrorFrame {
+  detail: string
+}
+
+/**
+ * Reads the SSE stream from `/ask/stream`.
+ *
+ * Hand-parsed rather than using EventSource: that API is GET-only and cannot
+ * carry an Authorization header, both of which this endpoint needs.
+ */
+export async function askStream(
+  sessionId: string,
+  question: string,
+  handlers: AskStreamHandlers,
+): Promise<void> {
+  const stream = await openStream(`/chat/sessions/${sessionId}/ask/stream`, {
+    question,
+  } satisfies AskRequest)
+
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let buffered = ''
+
+  const handleFrame = (block: string): void => {
+    let name = ''
+    let raw = ''
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event: ')) name = line.slice('event: '.length)
+      else if (line.startsWith('data: ')) raw = line.slice('data: '.length)
+    }
+    if (name === '' || raw === '') return
+
+    const payload: unknown = JSON.parse(raw)
+    if (name === 'sources') handlers.onSources((payload as SourcesFrame).sources)
+    else if (name === 'token') handlers.onToken((payload as TokenFrame).text)
+    else if (name === 'error') handlers.onError((payload as ErrorFrame).detail)
+  }
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffered += decoder.decode(value, { stream: true })
+    // Frames are separated by a blank line; a chunk can split one in half, so
+    // only complete frames are consumed and the remainder waits for more data.
+    let boundary = buffered.indexOf('\n\n')
+    while (boundary >= 0) {
+      handleFrame(buffered.slice(0, boundary))
+      buffered = buffered.slice(boundary + 2)
+      boundary = buffered.indexOf('\n\n')
+    }
+  }
 }

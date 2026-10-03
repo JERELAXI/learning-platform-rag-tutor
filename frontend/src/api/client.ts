@@ -141,7 +141,16 @@ function send(
   return fetch(`${BASE}${path}`, { method, headers, body, signal: options.signal })
 }
 
-async function request<T>(method: string, path: string, options: SendOptions = {}): Promise<T> {
+/**
+ * Sends with the access token, and on a 401 refreshes once and replays.
+ * Returns the raw Response so both the JSON path and the streaming path share
+ * exactly one copy of this logic.
+ */
+async function sendWithAuth(
+  method: string,
+  path: string,
+  options: SendOptions,
+): Promise<Response> {
   const withAuth = options.anonymous !== true
   let response = await send(method, path, options, withAuth)
 
@@ -155,12 +164,40 @@ async function request<T>(method: string, path: string, options: SendOptions = {
     clearTokens()
   }
 
+  return response
+}
+
+async function request<T>(method: string, path: string, options: SendOptions = {}): Promise<T> {
+  const response = await sendWithAuth(method, path, options)
+
   if (!response.ok) {
     throw new ApiError(response.status, formatDetail(response.status, await readBody(response)))
   }
 
   if (response.status === 204) return undefined as T
   return (await readBody(response)) as T
+}
+
+/**
+ * For endpoints that answer with a stream instead of a document. Errors still
+ * surface as a thrown ApiError, because the backend authorizes before it
+ * starts the response — so a 4xx arrives as a normal body, not as a frame
+ * inside the stream.
+ */
+export async function openStream(
+  path: string,
+  body: unknown,
+  options?: RequestOptions,
+): Promise<ReadableStream<Uint8Array>> {
+  const response = await sendWithAuth('POST', path, { ...options, body })
+
+  if (!response.ok) {
+    throw new ApiError(response.status, formatDetail(response.status, await readBody(response)))
+  }
+  if (response.body === null) {
+    throw new ApiError(response.status, 'Сервер не повернув потік відповіді.')
+  }
+  return response.body
 }
 
 export const api = {
